@@ -301,9 +301,14 @@ class MeetingService(IMeetingService):
         """
         from ..models import Message, ConversationMessage
         from ..adapters.factory import ModelAdapterFactory
+        import time
+        
+        start_time = time.time()
+        print(f"\n[MeetingService] request_agent_response: meeting_id={meeting_id}, agent_id={agent_id}")
         
         # Load meeting
         meeting = await self.get_meeting(meeting_id)
+        print(f"[MeetingService] Meeting loaded: {meeting.topic}, status={meeting.status.value}")
         
         # Verify meeting is active
         if meeting.status != MeetingStatus.ACTIVE:
@@ -340,14 +345,21 @@ class MeetingService(IMeetingService):
             )
         
         # Create model adapter for this agent
+        print(f"[MeetingService] Creating adapter for {agent.name} ({agent.model_config.provider})")
         adapter = ModelAdapterFactory.create(agent.model_config)
         
         # Get response from AI model
+        print(f"[MeetingService] Sending message to AI ({len(conversation_messages)} messages in context)...")
+        ai_start_time = time.time()
+        
         response_content = await adapter.send_message(
             messages=conversation_messages,
             system_prompt=agent.role.system_prompt,
             parameters=agent.model_config.parameters
         )
+        
+        ai_duration = time.time() - ai_start_time
+        print(f"[MeetingService] ✅ AI response received in {ai_duration:.2f}s, length={len(response_content)} chars")
         
         # Handle message length limit if configured
         if meeting.config.max_message_length is not None:
@@ -374,15 +386,21 @@ class MeetingService(IMeetingService):
         # Check if round should be incremented
         if self._should_increment_round(meeting):
             meeting.current_round += 1
+            print(f"[MeetingService] Round incremented to {meeting.current_round}")
             
             # Check if max rounds reached
             if meeting.config.max_rounds is not None:
                 if meeting.current_round > meeting.config.max_rounds:
                     # Auto-end meeting
                     meeting.status = MeetingStatus.ENDED
+                    print(f"[MeetingService] Meeting auto-ended (max rounds reached)")
         
         # Save meeting
+        print(f"[MeetingService] Saving meeting...")
         await self.storage.save_meeting(meeting)
+        
+        total_duration = time.time() - start_time
+        print(f"[MeetingService] ✅ request_agent_response completed in {total_duration:.2f}s")
 
     async def get_meeting(self, meeting_id: str) -> Meeting:
         """

@@ -6,11 +6,13 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 
 - **多供应商支持**: 集成来自 OpenAI、Anthropic、Google 和 GLM（智谱AI）的 AI 代理
 - **基于角色的代理**: 使用模板或自定义提示词配置具有特定角色和行为的代理
+- **@ 提及功能**: 像社交媒体一样使用 `@代理名` 指定发言者，自然直观 🎯
 - **结构化会议**: 创建具有可配置发言顺序、轮次限制和消息长度约束的会议
-- **交互式参与**: 用户可以加入会议、发送消息并请求特定代理响应
+- **智能交互**: 支持 @ 提及、请求所有代理、运行一轮等多种互动方式
 - **会议管理**: 暂停、恢复和结束会议，具有完整的状态管理
 - **导出功能**: 将会议记录导出为 Markdown 或 JSON 格式
 - **命令行界面**: 功能完整的 CLI，用于管理代理和会议
+- **Web 界面**: 友好的图形化界面，支持实时会议交互（WebSocket）
 
 ## 安装
 
@@ -28,7 +30,30 @@ pip install -e ".[dev]"
 
 ## 快速开始
 
-### 1. 创建代理
+### 使用 Web 界面（推荐）
+
+```bash
+# 安装依赖
+pip install -e .
+pip install -r requirements-web.txt
+
+cd web-frontend
+npm install
+cd ..
+
+# 启动服务
+./start_web.sh
+
+# 访问 http://localhost:5173
+```
+
+详细使用说明请查看：
+- [快速开始指南](QUICK_START.md) - 新手入门必读
+- [Web 界面使用指南](WEB_INTERFACE_GUIDE.md) - 完整功能说明
+
+### 使用命令行
+
+#### 1. 创建代理
 
 ```bash
 # 使用角色模板创建代理
@@ -175,6 +200,12 @@ pytest tests/test_cli_integration.py -v
 
 ## 文档
 
+- [快速开始指南](QUICK_START.md) - 新手入门必读 ⭐
+- [@ 提及功能指南](MENTION_FEATURE.md) - 智能 @ 提及使用说明 🎯
+- [使用示例](USAGE_EXAMPLES.md) - 实际使用场景和技巧 💡
+- [Web 界面使用指南](WEB_INTERFACE_GUIDE.md) - Web 界面详细使用说明
+- [故障排查指南](TROUBLESHOOTING.md) - 常见问题解决方案 🔧
+- [性能调优指南](PERFORMANCE_TUNING.md) - 超时配置和性能优化 ⚡
 - [CLI 使用指南](CLI_USAGE.md) - 详细的 CLI 命令参考
 - [角色模板](docs/role_templates.md) - 角色模板信息
 - [设计文档](.kiro/specs/ai-agent-meeting/design.md) - 系统设计和架构

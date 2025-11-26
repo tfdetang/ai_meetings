@@ -1,5 +1,6 @@
 """GLM (智谱AI) model adapter"""
 
+import asyncio
 import aiohttp
 import json
 from typing import List, Optional, AsyncIterator
@@ -82,7 +83,7 @@ class GLMAdapter(BaseModelAdapter):
                     f"{self.api_base}/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=60)
+                    timeout=aiohttp.ClientTimeout(total=300)  # Increased to 300 seconds (5 minutes)
                 ) as response:
                     if response.status == 200:
                         if self.stream:
@@ -99,6 +100,12 @@ class GLMAdapter(BaseModelAdapter):
                             provider="glm",
                             status_code=response.status
                         )
+        except asyncio.TimeoutError as e:
+            raise APIError(
+                f"GLM API request timed out after 300 seconds. Please try again.",
+                provider="glm",
+                status_code=None
+            ) from e
         except aiohttp.ClientError as e:
             raise APIError(
                 f"Network error calling GLM API: {str(e)}",
