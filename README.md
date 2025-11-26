@@ -55,7 +55,38 @@ cd ..
 
 ## 快速开始
 
-### 使用 Web 界面（推荐）
+### 使用 Docker Compose（最简单）🐳
+
+使用 Docker Compose 可以一键启动整个系统，无需手动安装依赖：
+
+```bash
+# 克隆仓库
+git clone https://github.com/tfdetang/ai_meetings
+cd ai_meetings
+
+# 启动服务（首次启动会自动构建镜像）
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f
+```
+
+服务启动后：
+- **前端界面**: http://localhost:3005
+- **后端 API**: http://localhost:8888
+
+停止服务：
+```bash
+docker-compose down
+```
+
+数据持久化：
+- 会议和代理数据保存在 `./data` 目录，容器重启后数据不会丢失
+
+### 使用 Web 界面（本地开发）
 
 ```bash
 # 安装依赖
