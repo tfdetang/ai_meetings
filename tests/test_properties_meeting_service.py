@@ -489,9 +489,15 @@ async def test_property_role_prompt_passing(topic, agents):
                 # Request agent response
                 await meeting_service.request_agent_response(meeting.id, agent.id)
                 
-                # Verify the system prompt matches the agent's role system prompt
-                assert mock_adapter.last_system_prompt == agent.role.system_prompt, \
-                    f"System prompt should match agent's role system prompt"
+                # Verify the system prompt contains the agent's role information
+                # The system prompt now includes role name, description, and system prompt
+                # plus additional context like discussion style
+                assert agent.role.name in mock_adapter.last_system_prompt, \
+                    f"System prompt should contain agent's role name"
+                assert agent.role.description in mock_adapter.last_system_prompt, \
+                    f"System prompt should contain agent's role description"
+                assert agent.role.system_prompt in mock_adapter.last_system_prompt, \
+                    f"System prompt should contain agent's role system prompt"
                 
                 # Verify send_message was called
                 assert mock_adapter.call_count == 1, "send_message should be called once"
@@ -560,13 +566,21 @@ async def test_property_meeting_context_passing(topic, agents, num_prior_message
             await meeting_service.request_agent_response(meeting.id, next_agent.id)
             
             # Verify the context includes all prior messages
+            # Note: The context now includes an additional message at the beginning with meeting metadata
+            # (topic, participants, etc.), so we expect message_count_before + 1 messages
             assert mock_adapter.last_messages is not None, "Messages should be passed to adapter"
-            assert len(mock_adapter.last_messages) == message_count_before, \
-                f"Context should include all {message_count_before} prior messages"
+            assert len(mock_adapter.last_messages) >= message_count_before, \
+                f"Context should include at least all {message_count_before} prior messages"
             
-            # Verify the content matches
+            # The first message is the meeting context, so skip it when verifying content
+            context_offset = len(mock_adapter.last_messages) - message_count_before
+            
+            # Verify the content matches (accounting for the context message at the beginning)
+            # Note: Messages are now formatted with speaker name prefix, so we check if the original
+            # content is contained in the formatted message
             for i, msg in enumerate(meeting_before.messages):
-                assert mock_adapter.last_messages[i].content == msg.content, \
+                formatted_content = mock_adapter.last_messages[i + context_offset].content
+                assert msg.content in formatted_content, \
                     f"Message {i} content should match"
         
     finally:
@@ -945,20 +959,15 @@ async def test_property_user_message_context_passing(topic, agents, user_message
             assert len(mock_adapter.last_messages) >= 1, "Context should include at least the user message"
             
             # Find the user message in the context (content is stripped)
+            # Note: Messages are now formatted with speaker name prefix
             stripped_user_message = user_message.strip()
             user_message_found = False
             for msg in mock_adapter.last_messages:
-                if msg.content == stripped_user_message and msg.role == 'user':
+                if stripped_user_message in msg.content and msg.role == 'user':
                     user_message_found = True
                     break
             
             assert user_message_found, "User message should be in the context passed to agent"
-            
-            # Verify the first message in context is the user message
-            assert mock_adapter.last_messages[0].content == stripped_user_message, \
-                "User message should be first in context"
-            assert mock_adapter.last_messages[0].role == 'user', \
-                "User message should have 'user' role"
         
         # Verify the meeting now has both messages
         final_meeting = await meeting_service.get_meeting(meeting.id)

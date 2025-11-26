@@ -57,7 +57,33 @@ function MeetingList() {
 
   const handleSubmit = async (values) => {
     try {
-      await meetingsAPI.create(values)
+      // Format the data for the API
+      const payload = {
+        topic: values.topic,
+        agent_ids: values.agent_ids,
+        moderator_type: values.moderator_type,
+        moderator_id: values.moderator_type === 'agent' ? values.moderator_id : 'user',
+        speaking_order: values.speaking_order,
+        discussion_style: values.discussion_style,
+      }
+
+      // Add optional fields
+      if (values.max_rounds) {
+        payload.max_rounds = parseInt(values.max_rounds)
+      }
+      if (values.max_message_length) {
+        payload.max_message_length = parseInt(values.max_message_length)
+      }
+
+      // Format agenda items
+      if (values.agenda && values.agenda.length > 0) {
+        payload.agenda = values.agenda.map(title => ({
+          title: title,
+          description: '',
+        }))
+      }
+
+      await meetingsAPI.create(payload)
       message.success('创建成功')
       setModalVisible(false)
       loadMeetings()
@@ -168,7 +194,7 @@ function MeetingList() {
         open={modalVisible}
         onCancel={() => setModalVisible(false)}
         onOk={() => form.submit()}
-        width={600}
+        width={700}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item
@@ -195,6 +221,66 @@ function MeetingList() {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="moderator_type"
+            label="主持人类型"
+            initialValue="user"
+            rules={[{ required: true, message: '请选择主持人类型' }]}
+          >
+            <Select>
+              <Option value="user">用户本人</Option>
+              <Option value="agent">AI 代理</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => 
+              prevValues.moderator_type !== currentValues.moderator_type
+            }
+          >
+            {({ getFieldValue }) =>
+              getFieldValue('moderator_type') === 'agent' ? (
+                <Form.Item
+                  name="moderator_id"
+                  label="主持人代理"
+                  rules={[{ required: true, message: '请选择主持人代理' }]}
+                >
+                  <Select placeholder="选择一个代理作为主持人">
+                    {agents.map(agent => (
+                      <Option key={agent.id} value={agent.id}>
+                        {agent.name} ({agent.role.name})
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              ) : null
+            }
+          </Form.Item>
+
+          <Form.Item
+            name="discussion_style"
+            label="讨论风格"
+            initialValue="formal"
+          >
+            <Select>
+              <Option value="formal">正式</Option>
+              <Option value="casual">轻松</Option>
+              <Option value="debate">辩论式</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="agenda"
+            label="初始议题（可选）"
+          >
+            <Select
+              mode="tags"
+              placeholder="输入议题并按回车添加"
+              tokenSeparators={[',']}
+            />
           </Form.Item>
 
           <Form.Item

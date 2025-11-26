@@ -55,8 +55,21 @@ export const meetingsAPI = {
   end: (id) => client.post(`/meetings/${id}/end`),
   sendMessage: (id, message) => client.post(`/meetings/${id}/messages`, { message }),
   requestAgent: (id, agentId) => client.post(`/meetings/${id}/request/${agentId}`),
+  requestAgentWithAutoResponse: (id, agentId, maxDepth = 5) => 
+    client.post(`/meetings/${id}/request-with-auto-response/${agentId}`, null, { params: { max_depth: maxDepth } }),
   exportMarkdown: (id) => client.get(`/meetings/${id}/export/markdown`),
   exportJson: (id) => client.get(`/meetings/${id}/export/json`),
+  // Agenda management
+  addAgenda: (id, data) => client.post(`/meetings/${id}/agenda`, data),
+  removeAgenda: (id, itemId) => client.delete(`/meetings/${id}/agenda/${itemId}`),
+  completeAgenda: (id, itemId) => client.patch(`/meetings/${id}/agenda/${itemId}`),
+  // Minutes management
+  generateMinutes: (id, agentId = null) => client.post(`/meetings/${id}/minutes`, agentId ? { agent_id: agentId } : {}),
+  getMinutes: (id) => client.get(`/meetings/${id}/minutes`),
+  updateMinutes: (id, content, editorId) => client.put(`/meetings/${id}/minutes`, { content, editor_id: editorId }),
+  getMinutesHistory: (id) => client.get(`/meetings/${id}/minutes/history`),
+  // Configuration
+  updateConfig: (id, config) => client.patch(`/meetings/${id}/config`, config),
 }
 
 export default client

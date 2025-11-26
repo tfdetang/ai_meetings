@@ -9,6 +9,8 @@ from ..models import (
     MeetingConfig,
     ConversationMessage,
     ModelParameters,
+    AgendaItem,
+    MeetingMinutes,
 )
 
 
@@ -23,6 +25,16 @@ class IModelAdapter(ABC):
         parameters: Optional[ModelParameters] = None
     ) -> str:
         """Send message to AI model and get response"""
+        pass
+
+    @abstractmethod
+    async def send_message_stream(
+        self,
+        messages: List[ConversationMessage],
+        system_prompt: str,
+        parameters: Optional[ModelParameters] = None
+    ):
+        """Send message to AI model and get streaming response (async generator)"""
         pass
 
     @abstractmethod
@@ -70,7 +82,13 @@ class IMeetingService(ABC):
 
     @abstractmethod
     async def create_meeting(
-        self, topic: str, agent_ids: List[str], config: MeetingConfig
+        self, 
+        topic: str, 
+        agent_ids: List[str], 
+        config: MeetingConfig,
+        moderator_id: Optional[str] = None,
+        moderator_type: Optional[str] = None,
+        agenda: Optional[List['AgendaItem']] = None
     ) -> Meeting:
         """Create new meeting"""
         pass
@@ -123,6 +141,31 @@ class IMeetingService(ABC):
     @abstractmethod
     async def export_meeting_json(self, meeting_id: str) -> str:
         """Export meeting to JSON format"""
+        pass
+
+    @abstractmethod
+    async def add_agenda_item(self, meeting_id: str, item: AgendaItem, requester_id: str, requester_type: str) -> None:
+        """Add agenda item (moderator only)"""
+        pass
+
+    @abstractmethod
+    async def remove_agenda_item(self, meeting_id: str, item_id: str, requester_id: str, requester_type: str) -> None:
+        """Remove agenda item (moderator only)"""
+        pass
+
+    @abstractmethod
+    async def mark_agenda_completed(self, meeting_id: str, item_id: str, requester_id: str, requester_type: str) -> None:
+        """Mark agenda item as completed (moderator only)"""
+        pass
+
+    @abstractmethod
+    async def generate_minutes(self, meeting_id: str, generator_id: Optional[str] = None) -> 'MeetingMinutes':
+        """Generate meeting minutes using AI model"""
+        pass
+
+    @abstractmethod
+    async def update_minutes(self, meeting_id: str, content: str, editor_id: str) -> 'MeetingMinutes':
+        """Update meeting minutes manually (creates new version)"""
         pass
 
 

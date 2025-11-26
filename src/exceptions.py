@@ -34,3 +34,17 @@ class MeetingStateError(Exception):
     def __init__(self, message: str, current_state: 'MeetingStatus'):
         super().__init__(message)
         self.current_state = current_state
+
+
+class PermissionError(Exception):
+    """Permission error"""
+    def __init__(self, message: str, required_role: str):
+        super().__init__(message)
+        self.required_role = required_role
+
+
+class AgendaError(Exception):
+    """Agenda operation error"""
+    def __init__(self, message: str, agenda_id: str):
+        super().__init__(message)
+        self.agenda_id = agenda_id

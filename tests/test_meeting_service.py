@@ -4,11 +4,12 @@ import pytest
 import tempfile
 import shutil
 
-from src.models import Agent, Role, ModelConfig, MeetingConfig, MeetingStatus, SpeakingOrder
+from src.models import Agent, Role, ModelConfig, MeetingConfig, MeetingStatus, SpeakingOrder, AgendaItem
 from src.storage import FileStorageService
 from src.services.agent_service import AgentService
 from src.services.meeting_service import MeetingService
-from src.exceptions import ValidationError, NotFoundError, MeetingStateError
+from src.exceptions import ValidationError, NotFoundError, MeetingStateError, PermissionError, AgendaError
+import uuid
 
 
 @pytest.fixture
@@ -547,3 +548,380 @@ async def test_request_nonexistent_agent_response(setup_services, sample_agent):
     
     assert exc_info.value.resource_type == "agent"
     assert exc_info.value.resource_id == "nonexistent-agent-id"
+
+
+@pytest.mark.asyncio
+async def test_add_agenda_item_as_moderator(setup_services, sample_agent):
+    """Test adding agenda item as moderator"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Add agenda item as moderator
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    await meeting_service.add_agenda_item(meeting.id, item, "user123", "user")
+    
+    # Verify item was added
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert len(updated_meeting.agenda) == 1
+    assert updated_meeting.agenda[0].title == "Test Item"
+    assert updated_meeting.agenda[0].description == "Test description"
+    assert updated_meeting.agenda[0].completed == False
+
+
+@pytest.mark.asyncio
+async def test_add_agenda_item_without_moderator(setup_services, sample_agent):
+    """Test adding agenda item when no moderator is set"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting without moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Add agenda item (should succeed since no moderator is set)
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    await meeting_service.add_agenda_item(meeting.id, item, "anyone", "user")
+    
+    # Verify item was added
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert len(updated_meeting.agenda) == 1
+
+
+@pytest.mark.asyncio
+async def test_add_agenda_item_as_non_moderator(setup_services, sample_agent):
+    """Test that non-moderator cannot add agenda item"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Try to add agenda item as non-moderator
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    
+    with pytest.raises(PermissionError) as exc_info:
+        await meeting_service.add_agenda_item(meeting.id, item, "user456", "user")
+    
+    assert exc_info.value.required_role == "moderator"
+
+
+@pytest.mark.asyncio
+async def test_add_agenda_item_empty_title(setup_services, sample_agent):
+    """Test that agenda item with empty title is rejected"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Try to add item with empty title
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="",
+        description="Test description"
+    )
+    
+    with pytest.raises(ValidationError) as exc_info:
+        await meeting_service.add_agenda_item(meeting.id, item, "user", "user")
+    
+    assert exc_info.value.field == "title"
+
+
+@pytest.mark.asyncio
+async def test_add_agenda_item_empty_description(setup_services, sample_agent):
+    """Test that agenda item with empty description is rejected"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Try to add item with empty description
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description=""
+    )
+    
+    with pytest.raises(ValidationError) as exc_info:
+        await meeting_service.add_agenda_item(meeting.id, item, "user", "user")
+    
+    assert exc_info.value.field == "description"
+
+
+@pytest.mark.asyncio
+async def test_remove_agenda_item_as_moderator(setup_services, sample_agent):
+    """Test removing agenda item as moderator"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    
+    # Add agenda item
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    meeting.agenda.append(item)
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Remove agenda item as moderator
+    await meeting_service.remove_agenda_item(meeting.id, item.id, "user123", "user")
+    
+    # Verify item was removed
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert len(updated_meeting.agenda) == 0
+
+
+@pytest.mark.asyncio
+async def test_remove_agenda_item_as_non_moderator(setup_services, sample_agent):
+    """Test that non-moderator cannot remove agenda item"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator and add item
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    meeting.agenda.append(item)
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Try to remove as non-moderator
+    with pytest.raises(PermissionError) as exc_info:
+        await meeting_service.remove_agenda_item(meeting.id, item.id, "user456", "user")
+    
+    assert exc_info.value.required_role == "moderator"
+
+
+@pytest.mark.asyncio
+async def test_remove_nonexistent_agenda_item(setup_services, sample_agent):
+    """Test that removing nonexistent agenda item raises error"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Try to remove nonexistent item
+    with pytest.raises(AgendaError) as exc_info:
+        await meeting_service.remove_agenda_item(meeting.id, "nonexistent-id", "user", "user")
+    
+    assert exc_info.value.agenda_id == "nonexistent-id"
+
+
+@pytest.mark.asyncio
+async def test_mark_agenda_completed_as_moderator(setup_services, sample_agent):
+    """Test marking agenda item as completed as moderator"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator and add item
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    meeting.agenda.append(item)
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Mark as completed
+    await meeting_service.mark_agenda_completed(meeting.id, item.id, "user123", "user")
+    
+    # Verify item is marked as completed
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert len(updated_meeting.agenda) == 1
+    assert updated_meeting.agenda[0].completed == True
+
+
+@pytest.mark.asyncio
+async def test_mark_agenda_completed_as_non_moderator(setup_services, sample_agent):
+    """Test that non-moderator cannot mark agenda item as completed"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting with moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set moderator and add item
+    meeting.moderator_id = "user123"
+    meeting.moderator_type = "user"
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    meeting.agenda.append(item)
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Try to mark as completed as non-moderator
+    with pytest.raises(PermissionError) as exc_info:
+        await meeting_service.mark_agenda_completed(meeting.id, item.id, "user456", "user")
+    
+    assert exc_info.value.required_role == "moderator"
+
+
+@pytest.mark.asyncio
+async def test_mark_nonexistent_agenda_completed(setup_services, sample_agent):
+    """Test that marking nonexistent agenda item as completed raises error"""
+    _, _, meeting_service = setup_services
+    agent = sample_agent
+    
+    # Create meeting
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Try to mark nonexistent item as completed
+    with pytest.raises(AgendaError) as exc_info:
+        await meeting_service.mark_agenda_completed(meeting.id, "nonexistent-id", "user", "user")
+    
+    assert exc_info.value.agenda_id == "nonexistent-id"
+
+
+@pytest.mark.asyncio
+async def test_agenda_item_agent_moderator(setup_services):
+    """Test agenda operations with agent as moderator"""
+    storage, agent_service, meeting_service = setup_services
+    
+    # Create agent
+    agent_data = {
+        'name': 'Moderator Agent',
+        'role': {
+            'name': 'Moderator',
+            'description': 'A moderator agent',
+            'system_prompt': 'You are a moderator'
+        },
+        'model_config': {
+            'provider': 'openai',
+            'model_name': 'gpt-4',
+            'api_key': 'test-key'
+        }
+    }
+    agent = await agent_service.create_agent(agent_data)
+    
+    # Create meeting with agent as moderator
+    config = MeetingConfig()
+    meeting = await meeting_service.create_meeting(
+        topic="Test Meeting",
+        agent_ids=[agent.id],
+        config=config
+    )
+    
+    # Set agent as moderator
+    meeting.moderator_id = agent.id
+    meeting.moderator_type = "agent"
+    await meeting_service.storage.save_meeting(meeting)
+    
+    # Add agenda item as agent moderator
+    item = AgendaItem(
+        id=str(uuid.uuid4()),
+        title="Test Item",
+        description="Test description"
+    )
+    await meeting_service.add_agenda_item(meeting.id, item, agent.id, "agent")
+    
+    # Verify item was added
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert len(updated_meeting.agenda) == 1
+    
+    # Mark as completed
+    await meeting_service.mark_agenda_completed(meeting.id, item.id, agent.id, "agent")
+    
+    # Verify item is completed
+    updated_meeting = await meeting_service.get_meeting(meeting.id)
+    assert updated_meeting.agenda[0].completed == True

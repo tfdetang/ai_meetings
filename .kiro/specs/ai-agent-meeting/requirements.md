@@ -12,6 +12,12 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 - **Role（角色）**: 分配给 AI 代理的身份和行为指导，定义其在讨论中的立场和风格
 - **Discussion Session（讨论会话）**: 一次完整的会议实例，包含多个代理的发言轮次
 - **User Participant（用户参与者）**: 可以随时加入讨论的人类用户
+- **Moderator（主持人）**: 负责组织会议进程、管理议题和引导讨论的参与者（可以是用户或 AI 代理）
+- **Agenda（议题）**: 会议中需要讨论的具体话题或问题
+- **Meeting Minutes（会议纪要）**: 对会议讨论内容的结构化总结，包含关键决策、结论和待办事项
+- **Discussion Style（讨论风格）**: 定义会议氛围和交流方式的配置（如正式、轻松、辩论式）
+- **Speaking Length Preference（发言长度偏好）**: 参与者发言详细程度的期望设置（简短、中等、详细）
+- **Mention（提及）**: 使用 @ 符号引用特定参会者以请求其发言或回应的功能
 
 ## 需求
 
@@ -109,3 +115,86 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 2. WHEN 核心会议逻辑执行 THEN Meeting System SHALL 与具体的 UI 实现和存储机制解耦
 3. WHEN 系统组件交互 THEN Meeting System SHALL 通过明确定义的接口进行通信
 4. WHEN 处理异步操作 THEN Meeting System SHALL 使用一致的错误处理和状态管理模式
+
+### 需求 9
+
+**用户故事:** 作为用户，我想要为每个会议指定一个主持人，以便有人负责组织会议进程和管理议题。
+
+#### 验收标准
+
+1. WHEN 用户创建会议 THEN Meeting System SHALL 允许用户指定主持人（可以是用户本人或参与会议的某个 AI 代理）
+2. WHEN 会议开始 THEN Meeting System SHALL 将主持人的特殊职责添加到其上下文中
+3. WHEN 主持人是 AI 代理 THEN Meeting System SHALL 在其系统提示词中添加主持人任务说明
+4. WHEN 用户查看会议信息 THEN Meeting System SHALL 显示当前会议的主持人身份
+
+### 需求 10
+
+**用户故事:** 作为主持人，我想要管理会议议题列表，以便组织讨论内容和跟踪讨论进度。
+
+#### 验收标准
+
+1. WHEN 主持人创建会议 THEN Meeting System SHALL 允许主持人添加初始议题列表
+2. WHEN 会议进行中 THEN Meeting System SHALL 允许主持人添加新议题
+3. WHEN 会议进行中 THEN Meeting System SHALL 允许主持人删除或标记议题为已完成
+4. WHEN 讨论偏离当前议题 THEN Meeting System SHALL 在主持人的上下文中包含提醒信息
+5. WHEN 任何参与者发言 THEN Meeting System SHALL 将当前议题列表包含在其上下文中
+
+### 需求 11
+
+**用户故事:** 作为用户，我想要为会议配置讨论风格和偏好，以便控制会议的进行方式和参与者的行为。
+
+#### 验收标准
+
+1. WHEN 用户创建或配置会议 THEN Meeting System SHALL 允许用户设置讨论风格（如正式、轻松、辩论式）
+2. WHEN 用户配置会议 THEN Meeting System SHALL 允许用户设置每个参与者的发言长度偏好（简短、中等、详细）
+3. WHEN 代理准备发言 THEN Meeting System SHALL 将讨论风格和发言长度偏好注入到其系统提示词中
+4. WHEN 用户更新会议配置 THEN Meeting System SHALL 在后续发言中应用新的配置
+
+### 需求 12
+
+**用户故事:** 作为用户，我想要系统将会议的关键信息注入到 AI 上下文中，以便代理能够了解会议状态和目标。
+
+#### 验收标准
+
+1. WHEN 代理准备发言 THEN Meeting System SHALL 将会议议题列表注入到其上下文中
+2. WHEN 代理准备发言 THEN Meeting System SHALL 将当前会议结论（如果有）注入到其上下文中
+3. WHEN 代理准备发言 THEN Meeting System SHALL 将该代理的角色描述注入到其系统提示词中
+4. WHEN 主持人代理准备发言 THEN Meeting System SHALL 额外注入主持人的特殊任务和职责
+5. WHEN 代理准备发言 THEN Meeting System SHALL 将所有参会者列表（包括姓名和角色）注入到其上下文中
+6. WHEN 代理准备发言 THEN Meeting System SHALL 将会议主持人身份信息注入到其上下文中
+
+### 需求 13
+
+**用户故事:** 作为用户，我想要系统能够生成会议纪要，以便总结重要结论并减少后续对话的上下文长度。
+
+#### 验收标准
+
+1. WHEN 会议达成重要结论 THEN Meeting System SHALL 允许用户或主持人触发会议纪要生成
+2. WHEN 生成会议纪要 THEN Meeting System SHALL 总结当前讨论的关键点、决策和待办事项
+3. WHEN 会议纪要生成后 THEN Meeting System SHALL 将纪要保存到会议记录中
+4. WHEN 会议纪要存在 THEN Meeting System SHALL 在后续发言的上下文中使用纪要而非全量历史消息
+5. WHEN 使用会议纪要 THEN Meeting System SHALL 仍然包含纪要生成后的新消息作为上下文
+
+### 需求 14
+
+**用户故事:** 作为用户，我想要手动管理会议纪要，以便根据需要更新或重新生成纪要内容。
+
+#### 验收标准
+
+1. WHEN 用户请求生成纪要 THEN Meeting System SHALL 使用 AI 模型总结当前会议内容并创建纪要
+2. WHEN 用户手动编辑纪要 THEN Meeting System SHALL 允许用户直接修改纪要文本内容
+3. WHEN 用户请求 AI 更新纪要 THEN Meeting System SHALL 允许用户指定某个 AI 代理重新生成或更新纪要
+4. WHEN 纪要被更新 THEN Meeting System SHALL 保留纪要的版本历史
+5. WHEN 用户查看会议 THEN Meeting System SHALL 显示当前有效的会议纪要
+
+### 需求 15
+
+**用户故事:** 作为参会者，我想要能够提及（@）其他参会者，以便直接请求特定人员发言或回应。
+
+#### 验收标准
+
+1. WHEN 参会者发言时使用 @ 符号加参会者名称 THEN Meeting System SHALL 识别被提及的参会者
+2. WHEN 消息中包含 @ 提及 THEN Meeting System SHALL 在被提及者的下次发言上下文中标注该提及
+3. WHEN AI 代理被 @ 提及 THEN Meeting System SHALL 优先安排该代理作为下一个发言者
+4. WHEN 用户被 @ 提及 THEN Meeting System SHALL 向用户发送通知或提示
+5. WHEN 显示消息 THEN Meeting System SHALL 高亮显示 @ 提及内容

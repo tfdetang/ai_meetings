@@ -85,7 +85,7 @@ class Agent:
 
 #### Meeting（会议）
 ```python
-from typing import List
+from typing import List, Optional, Dict
 from enum import Enum
 
 class SpeakingOrder(Enum):
@@ -97,18 +97,60 @@ class MeetingStatus(Enum):
     PAUSED = 'paused'
     ENDED = 'ended'
 
+class DiscussionStyle(Enum):
+    FORMAL = 'formal'
+    CASUAL = 'casual'
+    DEBATE = 'debate'
+
+class SpeakingLength(Enum):
+    BRIEF = 'brief'
+    MODERATE = 'moderate'
+    DETAILED = 'detailed'
+
+@dataclass
+class AgendaItem:
+    id: str
+    title: str
+    description: str
+    completed: bool = False
+    created_at: datetime = None
+
+@dataclass
+class MeetingMinutes:
+    id: str
+    content: str
+    summary: str
+    key_decisions: List[str]
+    action_items: List[str]
+    created_at: datetime
+    created_by: str  # user or agent_id
+    version: int
+
+@dataclass
+class Mention:
+    mentioned_participant_id: str
+    mentioned_participant_name: str
+    message_id: str
+
 @dataclass
 class MeetingConfig:
     max_rounds: Optional[int] = None
     max_message_length: Optional[int] = None
     speaking_order: SpeakingOrder = SpeakingOrder.SEQUENTIAL
+    discussion_style: DiscussionStyle = DiscussionStyle.FORMAL
+    speaking_length_preferences: Dict[str, SpeakingLength] = None  # participant_id -> preference
 
 @dataclass
 class Meeting:
     id: str
     topic: str
     participants: List[Agent]
+    moderator_id: str  # user or agent_id
+    moderator_type: Literal['user', 'agent']
+    agenda: List[AgendaItem]
     messages: List['Message']
+    minutes_history: List[MeetingMinutes]
+    current_minutes: Optional[MeetingMinutes]
     config: MeetingConfig
     status: MeetingStatus
     created_at: datetime
@@ -117,7 +159,7 @@ class Meeting:
 
 #### Message（消息）
 ```python
-from typing import Literal
+from typing import Literal, List
 
 SpeakerType = Literal['agent', 'user']
 
@@ -130,6 +172,7 @@ class Message:
     content: str
     timestamp: datetime
     round_number: int
+    mentions: List[Mention] = None  # @提及的参会者列表
 ```
 
 ### 2. 服务接口
@@ -166,7 +209,13 @@ class IModelAdapter(ABC):
 class IMeetingService(ABC):
     @abstractmethod
     async def create_meeting(
-        self, topic: str, agent_ids: List[str], config: MeetingConfig
+        self, 
+        topic: str, 
+        agent_ids: List[str], 
+        moderator_id: str,
+        moderator_type: Literal['user', 'agent'],
+        agenda: List[AgendaItem],
+        config: MeetingConfig
     ) -> Meeting:
         """创建新会议"""
         pass
@@ -194,6 +243,36 @@ class IMeetingService(ABC):
     @abstractmethod
     async def request_agent_response(self, meeting_id: str, agent_id: str) -> None:
         """请求特定代理响应"""
+        pass
+    
+    @abstractmethod
+    async def add_agenda_item(self, meeting_id: str, item: AgendaItem) -> None:
+        """添加议题"""
+        pass
+    
+    @abstractmethod
+    async def remove_agenda_item(self, meeting_id: str, item_id: str) -> None:
+        """删除议题"""
+        pass
+    
+    @abstractmethod
+    async def mark_agenda_completed(self, meeting_id: str, item_id: str) -> None:
+        """标记议题为已完成"""
+        pass
+    
+    @abstractmethod
+    async def generate_minutes(self, meeting_id: str, generator_id: Optional[str] = None) -> MeetingMinutes:
+        """生成会议纪要（可选指定生成者）"""
+        pass
+    
+    @abstractmethod
+    async def update_minutes(self, meeting_id: str, content: str, editor_id: str) -> MeetingMinutes:
+        """更新会议纪要"""
+        pass
+    
+    @abstractmethod
+    async def update_meeting_config(self, meeting_id: str, config: MeetingConfig) -> None:
+        """更新会议配置"""
         pass
     
     @abstractmethod
@@ -317,6 +396,200 @@ class ModelAdapterFactory:
             raise ValueError(f"Unsupported provider: {config.provider}")
 ```
 
+### 4. 上下文构建策略
+
+#### 4.1 基础上下文结构
+
+当代理准备发言时，系统需要构建完整的上下文信息。上下文包含以下部分：
+
+1. **系统提示词（System Prompt）**：
+   - 代理的角色描述
+   - 讨论风格指导
+   - 发言长度偏好
+   - 主持人职责（如果是主持人）
+
+2. **会议元信息**：
+   - 会议主题
+   - 会议主持人身份
+   - 所有参会者列表（姓名和角色）
+   - 当前议题列表
+   - 当前会议结论（如果有）
+
+3. **历史消息**：
+   - 如果存在会议纪要：纪要内容 + 纪要生成后的新消息
+   - 如果不存在纪要：所有历史消息
+   - @提及标注（如果被提及）
+
+#### 4.2 系统提示词构建
+
+```python
+def build_system_prompt(agent: Agent, meeting: Meeting, is_moderator: bool) -> str:
+    """构建代理的系统提示词"""
+    prompt_parts = []
+    
+    # 基础角色
+    prompt_parts.append(f"你的角色：{agent.role.name}")
+    prompt_parts.append(f"角色描述：{agent.role.description}")
+    prompt_parts.append(agent.role.system_prompt)
+    
+    # 讨论风格
+    style_guide = {
+        DiscussionStyle.FORMAL: "请保持正式、专业的讨论风格",
+        DiscussionStyle.CASUAL: "请使用轻松、友好的讨论风格",
+        DiscussionStyle.DEBATE: "请采用辩论式风格，清晰表达观点并提供论据"
+    }
+    prompt_parts.append(style_guide[meeting.config.discussion_style])
+    
+    # 发言长度偏好
+    length_guide = {
+        SpeakingLength.BRIEF: "请保持发言简短，直接表达要点",
+        SpeakingLength.MODERATE: "请适度展开，提供必要的细节",
+        SpeakingLength.DETAILED: "请详细阐述，提供充分的分析和例子"
+    }
+    if agent.id in meeting.config.speaking_length_preferences:
+        preference = meeting.config.speaking_length_preferences[agent.id]
+        prompt_parts.append(length_guide[preference])
+    
+    # 主持人职责
+    if is_moderator:
+        prompt_parts.append("""
+作为会议主持人，你的职责包括：
+1. 引导讨论围绕议题进行
+2. 确保所有参与者有机会发言
+3. 总结关键观点和决策
+4. 在讨论偏离主题时及时提醒
+5. 推动会议向结论前进
+        """)
+    
+    return "\n\n".join(prompt_parts)
+```
+
+#### 4.3 会议上下文构建
+
+```python
+def build_meeting_context(meeting: Meeting, current_agent_id: str) -> str:
+    """构建会议元信息上下文"""
+    context_parts = []
+    
+    # 会议基本信息
+    context_parts.append(f"会议主题：{meeting.topic}")
+    
+    # 主持人信息
+    moderator_name = "用户" if meeting.moderator_type == 'user' else \
+                     next(a.name for a in meeting.participants if a.id == meeting.moderator_id)
+    context_parts.append(f"会议主持人：{moderator_name}")
+    
+    # 参会者列表
+    participants_info = []
+    for participant in meeting.participants:
+        participants_info.append(f"- {participant.name}（{participant.role.name}）")
+    context_parts.append("参会者：\n" + "\n".join(participants_info))
+    
+    # 议题列表
+    if meeting.agenda:
+        agenda_info = []
+        for item in meeting.agenda:
+            status = "✓" if item.completed else "○"
+            agenda_info.append(f"{status} {item.title}: {item.description}")
+        context_parts.append("会议议题：\n" + "\n".join(agenda_info))
+    
+    # 当前结论
+    if meeting.current_minutes:
+        context_parts.append(f"当前会议结论：\n{meeting.current_minutes.summary}")
+    
+    # @提及检查
+    recent_mentions = [m for msg in meeting.messages[-5:] 
+                      for m in (msg.mentions or []) 
+                      if m.mentioned_participant_id == current_agent_id]
+    if recent_mentions:
+        context_parts.append("注意：你在最近的讨论中被提及，请回应相关内容。")
+    
+    return "\n\n".join(context_parts)
+```
+
+#### 4.4 历史消息构建
+
+```python
+def build_message_history(meeting: Meeting) -> List[ConversationMessage]:
+    """构建历史消息列表"""
+    messages = []
+    
+    if meeting.current_minutes:
+        # 使用会议纪要替代之前的历史
+        messages.append(ConversationMessage(
+            role='system',
+            content=f"会议纪要（截至 {meeting.current_minutes.created_at}）：\n{meeting.current_minutes.content}"
+        ))
+        
+        # 添加纪要生成后的新消息
+        minutes_time = meeting.current_minutes.created_at
+        new_messages = [m for m in meeting.messages if m.timestamp > minutes_time]
+        for msg in new_messages:
+            messages.append(ConversationMessage(
+                role='assistant' if msg.speaker_type == 'agent' else 'user',
+                content=f"{msg.speaker_name}: {msg.content}"
+            ))
+    else:
+        # 使用全量历史消息
+        for msg in meeting.messages:
+            messages.append(ConversationMessage(
+                role='assistant' if msg.speaker_type == 'agent' else 'user',
+                content=f"{msg.speaker_name}: {msg.content}"
+            ))
+    
+    return messages
+```
+
+### 5. @提及处理
+
+#### 5.1 提及解析
+
+```python
+import re
+
+def parse_mentions(content: str, participants: List[Agent]) -> List[Mention]:
+    """从消息内容中解析@提及"""
+    mentions = []
+    # 匹配 @用户名 或 @"用户名"
+    pattern = r'@(?:"([^"]+)"|(\S+))'
+    matches = re.finditer(pattern, content)
+    
+    for match in matches:
+        mentioned_name = match.group(1) or match.group(2)
+        # 查找匹配的参与者
+        for participant in participants:
+            if participant.name == mentioned_name:
+                mentions.append(Mention(
+                    mentioned_participant_id=participant.id,
+                    mentioned_participant_name=participant.name,
+                    message_id=""  # 将在保存消息时设置
+                ))
+                break
+    
+    return mentions
+```
+
+#### 5.2 发言顺序调整
+
+当消息中包含@提及时，系统应优先安排被提及的代理发言：
+
+```python
+def get_next_speaker(meeting: Meeting, last_message: Message) -> Optional[str]:
+    """确定下一个发言者"""
+    # 如果最后一条消息包含@提及，优先安排被提及者
+    if last_message.mentions:
+        for mention in last_message.mentions:
+            # 检查被提及者是否是AI代理
+            if any(a.id == mention.mentioned_participant_id for a in meeting.participants):
+                return mention.mentioned_participant_id
+    
+    # 否则按照配置的发言顺序
+    if meeting.config.speaking_order == SpeakingOrder.SEQUENTIAL:
+        return get_next_sequential_speaker(meeting)
+    else:
+        return get_random_speaker(meeting)
+```
+
 ## 数据模型
 
 ### 存储结构
@@ -347,6 +620,126 @@ data/
 ## 正确性属性
 
 *属性是指在系统所有有效执行中都应该成立的特征或行为——本质上是关于系统应该做什么的形式化陈述。属性作为人类可读规范和机器可验证正确性保证之间的桥梁。*
+
+### 主持人管理属性
+
+**属性 31: 主持人配置完整性**
+*对于任何*会议创建请求，如果指定了主持人（用户或AI代理），创建的会议对象应包含正确的主持人ID和类型
+**验证需求: 9.1**
+
+**属性 32: 主持人系统提示词增强**
+*对于任何*作为主持人的AI代理，其系统提示词应包含主持人职责说明
+**验证需求: 9.3**
+
+**属性 33: 会议信息包含主持人**
+*对于任何*会议，会议对象应包含主持人身份信息（ID和类型）
+**验证需求: 9.4**
+
+### 议题管理属性
+
+**属性 34: 初始议题列表接受**
+*对于任何*会议创建请求，如果包含初始议题列表，创建的会议对象应包含所有议题
+**验证需求: 10.1**
+
+**属性 35: 议题动态添加**
+*对于任何*活动会议和新议题，添加议题后会议的议题列表长度应增加1
+**验证需求: 10.2**
+
+**属性 36: 议题状态管理**
+*对于任何*会议中的议题，标记为已完成后该议题的completed字段应为True；删除后该议题不应出现在议题列表中
+**验证需求: 10.3**
+
+**属性 37: 议题上下文注入**
+*对于任何*代理发言，构建的上下文应包含当前会议的议题列表
+**验证需求: 10.5, 12.1**
+
+### 会议配置属性
+
+**属性 38: 讨论风格配置**
+*对于任何*会议创建或配置请求，如果指定了讨论风格，会议配置应包含该风格设置
+**验证需求: 11.1**
+
+**属性 39: 发言长度偏好配置**
+*对于任何*会议配置，如果为参与者指定了发言长度偏好，配置应正确存储每个参与者的偏好
+**验证需求: 11.2**
+
+**属性 40: 配置注入系统提示词**
+*对于任何*代理发言，系统提示词应包含会议的讨论风格和该代理的发言长度偏好（如果配置了）
+**验证需求: 11.3**
+
+**属性 41: 配置更新应用**
+*对于任何*会议配置更新，更新后代理发言时应使用新的配置构建系统提示词
+**验证需求: 11.4**
+
+### 上下文注入属性
+
+**属性 42: 会议结论上下文注入**
+*对于任何*存在会议纪要的会议，代理发言时的上下文应包含当前会议结论
+**验证需求: 12.2**
+
+**属性 43: 角色描述上下文注入**
+*对于任何*代理发言，系统提示词应包含该代理的角色描述
+**验证需求: 12.3**
+
+**属性 44: 主持人职责上下文注入**
+*对于任何*作为主持人的AI代理发言，系统提示词应额外包含主持人的特殊任务和职责
+**验证需求: 12.4**
+
+**属性 45: 参会者列表上下文注入**
+*对于任何*代理发言，上下文应包含所有参会者的姓名和角色信息
+**验证需求: 12.5**
+
+**属性 46: 主持人身份上下文注入**
+*对于任何*代理发言，上下文应包含会议主持人的身份信息
+**验证需求: 12.6**
+
+### 会议纪要属性
+
+**属性 47: 纪要生成功能**
+*对于任何*会议，触发纪要生成后应创建一个非空的会议纪要对象
+**验证需求: 13.1, 14.1**
+
+**属性 48: 纪要持久化**
+*对于任何*生成的会议纪要，该纪要应被保存到会议的纪要历史中
+**验证需求: 13.3**
+
+**属性 49: 纪要优化上下文**
+*对于任何*存在会议纪要的会议，代理发言时的历史消息上下文应使用纪要内容而非纪要生成前的全量消息
+**验证需求: 13.4**
+
+**属性 50: 纪要后新消息包含**
+*对于任何*存在会议纪要的会议，代理发言时的上下文应包含纪要生成后的所有新消息
+**验证需求: 13.5**
+
+**属性 51: 纪要手动编辑**
+*对于任何*会议纪要，手动编辑后纪要内容应反映更新
+**验证需求: 14.2**
+
+**属性 52: 纪要AI更新**
+*对于任何*会议，指定AI代理更新纪要后应生成新版本的纪要
+**验证需求: 14.3**
+
+**属性 53: 纪要版本历史**
+*对于任何*会议纪要，每次更新后版本历史列表长度应增加1
+**验证需求: 14.4**
+
+**属性 54: 当前纪要显示**
+*对于任何*存在纪要的会议，会议对象应包含当前有效的纪要
+**验证需求: 14.5**
+
+### @提及功能属性
+
+**属性 55: 提及解析**
+*对于任何*包含@符号和参会者名称的消息，系统应正确识别被提及的参会者
+**验证需求: 15.1**
+
+**属性 56: 提及上下文标注**
+*对于任何*包含@提及的消息，被提及者下次发言时的上下文应包含提及标注
+**验证需求: 15.2**
+
+**属性 57: 提及优先发言**
+*对于任何*消息中@提及的AI代理，该代理应成为下一个发言者（优先于正常发言顺序）
+**验证需求: 15.3**
 
 ### 代理管理属性
 
@@ -514,6 +907,18 @@ class MeetingStateError(Exception):
     def __init__(self, message: str, current_state: MeetingStatus):
         super().__init__(message)
         self.current_state = current_state
+
+class PermissionError(Exception):
+    """权限错误"""
+    def __init__(self, message: str, required_role: str):
+        super().__init__(message)
+        self.required_role = required_role
+
+class AgendaError(Exception):
+    """议题操作错误"""
+    def __init__(self, message: str, agenda_id: str):
+        super().__init__(message)
+        self.agenda_id = agenda_id
 ```
 
 ### 错误处理策略
@@ -579,29 +984,60 @@ class MeetingStateError(Exception):
    - API 凭证存储和检索
    - 会议持久化和恢复
 
-2. **不变量属性** (Properties 1, 3, 9, 22):
+2. **不变量属性** (Properties 1, 3, 9, 22, 31, 33, 34, 45, 46):
    - 数据结构完整性
    - 必需字段存在性
    - 元数据一致性
+   - 主持人信息完整性
+   - 参会者信息完整性
 
-3. **状态转换属性** (Properties 16, 17, 18, 28):
+3. **状态转换属性** (Properties 16, 17, 18, 28, 36):
    - 会议状态机正确性
    - 轮次管理
    - 自动结束条件
+   - 议题状态管理
 
-4. **集合操作属性** (Properties 3, 5, 23, 26):
+4. **集合操作属性** (Properties 3, 5, 23, 26, 35, 53):
    - 列表完整性
    - 删除操作正确性
    - 查询一致性
+   - 议题列表增长
+   - 纪要版本历史增长
 
-5. **顺序属性** (Properties 13, 30):
+5. **顺序属性** (Properties 13, 30, 57):
    - 顺序发言模式
    - 随机发言模式
+   - @提及优先发言
 
 6. **验证属性** (Properties 11, 21, 29):
    - 输入验证规则
    - 长度限制
    - 空值拒绝
+
+7. **上下文构建属性** (Properties 37, 40, 42, 43, 44, 49, 50, 56):
+   - 议题上下文注入
+   - 配置注入系统提示词
+   - 会议结论注入
+   - 角色描述注入
+   - 主持人职责注入
+   - 纪要优化上下文
+   - 纪要后新消息包含
+   - 提及上下文标注
+
+8. **配置管理属性** (Properties 38, 39, 41):
+   - 讨论风格配置
+   - 发言长度偏好配置
+   - 配置更新应用
+
+9. **纪要管理属性** (Properties 47, 48, 51, 52, 54):
+   - 纪要生成功能
+   - 纪要持久化
+   - 纪要手动编辑
+   - 纪要AI更新
+   - 当前纪要显示
+
+10. **提及处理属性** (Properties 55):
+    - 提及解析正确性
 
 **生成器策略**:
 

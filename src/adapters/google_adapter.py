@@ -104,6 +104,102 @@ class GoogleAdapter(BaseModelAdapter):
                 status_code=None
             ) from e
     
+    async def send_message_stream(
+        self,
+        messages: List[ConversationMessage],
+        system_prompt: str,
+        parameters: Optional[ModelParameters] = None
+    ):
+        """Send message to Google AI API and get streaming response"""
+        # Google uses a different message format
+        contents = []
+        
+        for msg in messages:
+            role = "model" if msg.role == "assistant" else "user"
+            contents.append({
+                "role": role,
+                "parts": [{"text": msg.content}]
+            })
+        
+        # Build request payload
+        payload = {
+            "contents": contents,
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            }
+        }
+        
+        # Add generation config if parameters provided
+        params = parameters or self.config.parameters
+        if params:
+            generation_config = {}
+            if params.temperature is not None:
+                generation_config["temperature"] = params.temperature
+            if params.max_tokens is not None:
+                generation_config["maxOutputTokens"] = params.max_tokens
+            if params.top_p is not None:
+                generation_config["topP"] = params.top_p
+            
+            if generation_config:
+                payload["generationConfig"] = generation_config
+        
+        # Use streamGenerateContent endpoint
+        url = f"{self.api_base}/models/{self.config.model_name}:streamGenerateContent"
+        
+        headers = {
+            "Content-Type": "application/json",
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    params={"key": self.config.api_key, "alt": "sse"},
+                    timeout=aiohttp.ClientTimeout(total=120)
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise APIError(
+                            f"Google AI API error: {error_text}",
+                            provider="google",
+                            status_code=response.status
+                        )
+                    
+                    # Stream response chunks
+                    async for line in response.content:
+                        line = line.decode('utf-8').strip()
+                        if not line or not line.startswith('data: '):
+                            continue
+                        
+                        data_str = line[6:]  # Remove 'data: ' prefix
+                        if data_str == '[DONE]':
+                            break
+                        
+                        try:
+                            import json
+                            data = json.loads(data_str)
+                            
+                            # Extract text from candidates
+                            candidates = data.get('candidates', [])
+                            if candidates:
+                                content = candidates[0].get('content', {})
+                                parts = content.get('parts', [])
+                                if parts:
+                                    text = parts[0].get('text', '')
+                                    if text:
+                                        yield text
+                        except json.JSONDecodeError:
+                            continue
+                            
+        except aiohttp.ClientError as e:
+            raise APIError(
+                f"Network error calling Google AI API: {str(e)}",
+                provider="google",
+                status_code=None
+            ) from e
+    
     async def test_connection(self) -> bool:
         """Test connection to Google AI API"""
         try:

@@ -1,12 +1,40 @@
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
+import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import './MarkdownMessage.css'
 
-function MarkdownMessage({ content }) {
+function MarkdownMessage({ content, reasoningContent }) {
+  const [reasoningExpanded, setReasoningExpanded] = useState(false)
+  
   return (
     <div className="markdown-message">
+      {reasoningContent && (
+        <div className="reasoning-section">
+          <div 
+            className="reasoning-header" 
+            onClick={() => setReasoningExpanded(!reasoningExpanded)}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+          >
+            <span style={{ color: '#888', fontSize: '13px' }}>
+              {reasoningExpanded ? <UpOutlined /> : <DownOutlined />}
+              {' '}💭 思考过程
+            </span>
+          </div>
+          {reasoningExpanded && (
+            <div className="reasoning-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, rehypeSanitize]}
+              >
+                {reasoningContent}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
+      )}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw, rehypeSanitize]}
