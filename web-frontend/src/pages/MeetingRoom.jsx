@@ -2,12 +2,15 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { 
   Card, Button, Input, Space, message, Tag, Badge, 
-  Spin, Empty, Popconfirm, Select, Divider, Switch, Modal, Form, List, Checkbox 
+  Spin, Empty, Popconfirm, Select, Divider, Switch, Modal, Form, List, Checkbox,
+  FloatButton, Drawer 
 } from 'antd'
 import { 
   SendOutlined, PlayCircleOutlined, PauseCircleOutlined, 
   StopOutlined, DownloadOutlined, ArrowLeftOutlined, PlusOutlined, 
-  DeleteOutlined, CheckCircleOutlined, EditOutlined, HistoryOutlined 
+  DeleteOutlined, CheckCircleOutlined, EditOutlined, HistoryOutlined,
+  DownOutlined, UpOutlined, FileTextOutlined, MenuUnfoldOutlined, 
+  MenuFoldOutlined, UnorderedListOutlined 
 } from '@ant-design/icons'
 import { meetingsAPI } from '../api/client'
 import MarkdownMessage from '../components/MarkdownMessage'
@@ -39,9 +42,29 @@ function MeetingRoom() {
   const [autoResponseEnabled, setAutoResponseEnabled] = useState(false)
   const [streamingEnabled, setStreamingEnabled] = useState(true)  // 默认打开流式输出
   const [streamingMessage, setStreamingMessage] = useState(null)
+  const [meetingInfoCollapsed, setMeetingInfoCollapsed] = useState(() => {
+    // 从 localStorage 读取折叠状态，默认为 false（展开）
+    const saved = localStorage.getItem('meetingInfoCollapsed')
+    return saved === 'true'
+  })
+  const [minutesDrawerVisible, setMinutesDrawerVisible] = useState(false)
+  const [minutesPromptModalVisible, setMinutesPromptModalVisible] = useState(false)
+  const [minutesPromptForm] = Form.useForm()
+  const [agendaSidebarCollapsed, setAgendaSidebarCollapsed] = useState(() => {
+    // 从 localStorage 读取侧边栏折叠状态，默认为 false（展开）
+    const saved = localStorage.getItem('agendaSidebarCollapsed')
+    return saved === 'true'
+  })
+  const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(() => {
+    // 从 localStorage 读取设置侧边栏折叠状态，默认为 true（收起）
+    const saved = localStorage.getItem('settingsSidebarCollapsed')
+    return saved !== 'false' // 默认收起
+  })
   const messagesEndRef = useRef(null)
   const wsRef = useRef(null)
   const textAreaRef = useRef(null)
+  const cancelRequestRef = useRef(false) // 用于取消当前请求
+  const eventSourceRef = useRef(null) // 用于存储 EventSource 实例
   
   // 为代理分配颜色的调色板（柔和的颜色）
   const colorPalette = [
@@ -93,6 +116,21 @@ function MeetingRoom() {
       scrollToBottom()
     }
   }, [streamingMessage])
+
+  useEffect(() => {
+    // 持久化折叠状态到 localStorage
+    localStorage.setItem('meetingInfoCollapsed', meetingInfoCollapsed)
+  }, [meetingInfoCollapsed])
+
+  useEffect(() => {
+    // 持久化侧边栏折叠状态到 localStorage
+    localStorage.setItem('agendaSidebarCollapsed', agendaSidebarCollapsed)
+  }, [agendaSidebarCollapsed])
+
+  useEffect(() => {
+    // 持久化设置侧边栏折叠状态到 localStorage
+    localStorage.setItem('settingsSidebarCollapsed', settingsSidebarCollapsed)
+  }, [settingsSidebarCollapsed])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -243,6 +281,12 @@ function MeetingRoom() {
   }
   
   const handleRequestAgentById = async (agentId, useAutoResponse = false) => {
+    // 检查是否被取消
+    if (cancelRequestRef.current) {
+      console.log('[Meeting Room] Request cancelled by user')
+      return
+    }
+    
     console.log(`[Meeting Room] Requesting agent response: agentId=${agentId}, meetingId=${meetingId}`)
     console.log(`[Meeting Room] autoResponse=${useAutoResponse}, autoResponseEnabled=${autoResponseEnabled}, streamingEnabled=${streamingEnabled}`)
     const startTime = Date.now()
@@ -259,6 +303,12 @@ function MeetingRoom() {
         await handleStreamingResponse(agentId)
         hideLoading()
         
+        // 检查是否被取消
+        if (cancelRequestRef.current) {
+          console.log('[Meeting Room] Request cancelled after streaming')
+          return
+        }
+        
         // 如果同时启用了自动响应，在流式完成后检查是否有 @ 提及
         if (autoResponseEnabled) {
           const meeting = await meetingsAPI.get(meetingId)
@@ -266,6 +316,12 @@ function MeetingRoom() {
           if (lastMessage && lastMessage.mentions && lastMessage.mentions.length > 0) {
             console.log('[Meeting Room] Auto-response enabled, checking mentions...')
             for (const mention of lastMessage.mentions) {
+              // 检查是否被取消
+              if (cancelRequestRef.current) {
+                console.log('[Meeting Room] Auto-response chain cancelled')
+                break
+              }
+              
               const mentionedAgent = meeting.data.participants.find(p => p.id === mention.mentioned_participant_id)
               if (mentionedAgent) {
                 console.log(`[Meeting Room] Auto-requesting mentioned agent: ${mentionedAgent.name}`)
@@ -302,6 +358,13 @@ function MeetingRoom() {
       console.error(`[Meeting Room] ❌ Request failed after ${duration}s:`, error)
       
       hideLoading()
+      
+      // 如果是用户取消，不显示错误
+      if (error.message === 'Request cancelled by user') {
+        message.info('已停止输出')
+        return
+      }
+      
       const errorMsg = error.response?.data?.detail || error.message || String(error)
       if (errorMsg && (errorMsg.includes('timeout') || errorMsg.includes('超时'))) {
         message.error(`请求超时 (${duration}秒)，AI 服务响应较慢，请稍后重试`, 5)
@@ -316,6 +379,9 @@ function MeetingRoom() {
       const eventSource = new EventSource(
         `/api/meetings/${meetingId}/request-stream/${agentId}`
       )
+      
+      // 保存 EventSource 实例以便取消
+      eventSourceRef.current = eventSource
       
       let streamedContent = ''
       let streamedReasoning = ''
@@ -336,6 +402,16 @@ function MeetingRoom() {
       })
       
       eventSource.onmessage = (event) => {
+        // 检查是否被取消
+        if (cancelRequestRef.current) {
+          console.log('Streaming cancelled by user')
+          setStreamingMessage(null)
+          eventSource.close()
+          eventSourceRef.current = null
+          reject(new Error('Request cancelled by user'))
+          return
+        }
+        
         try {
           const data = JSON.parse(event.data)
           
@@ -360,11 +436,13 @@ function MeetingRoom() {
             // 清除临时消息
             setStreamingMessage(null)
             eventSource.close()
+            eventSourceRef.current = null
             resolve()
           } else if (data.type === 'error') {
             console.error('Streaming error:', data.error)
             setStreamingMessage(null)
             eventSource.close()
+            eventSourceRef.current = null
             reject(new Error(data.error))
           }
         } catch (error) {
@@ -374,7 +452,9 @@ function MeetingRoom() {
       
       eventSource.onerror = (error) => {
         console.error('EventSource error:', error)
+        setStreamingMessage(null)
         eventSource.close()
+        eventSourceRef.current = null
         reject(error)
       }
     })
@@ -413,11 +493,22 @@ function MeetingRoom() {
     console.log(`[Meeting Room] Starting round with ${meeting.participants.length} participants`)
     const roundStartTime = Date.now()
     
+    // 重置取消标志
+    cancelRequestRef.current = false
+    
     setSending(true)
     const hideLoading = message.loading(`正在运行一轮讨论 (${meeting.participants.length} 个代理)...`, 0)
     
     try {
       for (let i = 0; i < meeting.participants.length; i++) {
+        // 检查是否被取消
+        if (cancelRequestRef.current) {
+          console.log('[Meeting Room] Round cancelled by user')
+          hideLoading()
+          message.info('已停止运行')
+          break
+        }
+        
         const participant = meeting.participants[i]
         console.log(`[Meeting Room] Agent ${i + 1}/${meeting.participants.length}: ${participant.name}`)
         
@@ -431,21 +522,51 @@ function MeetingRoom() {
         console.log(`[Meeting Room] ${participant.name} completed in ${agentDuration}s`)
       }
       
-      const totalDuration = ((Date.now() - roundStartTime) / 1000).toFixed(2)
-      console.log(`[Meeting Room] ✅ Round completed in ${totalDuration}s`)
-      
-      hideLoading()
-      message.success(`一轮讨论完成！(总计 ${totalDuration}秒)`)
+      if (!cancelRequestRef.current) {
+        const totalDuration = ((Date.now() - roundStartTime) / 1000).toFixed(2)
+        console.log(`[Meeting Room] ✅ Round completed in ${totalDuration}s`)
+        
+        hideLoading()
+        message.success(`一轮讨论完成！(总计 ${totalDuration}秒)`)
+      }
     } catch (error) {
       const totalDuration = ((Date.now() - roundStartTime) / 1000).toFixed(2)
       console.error(`[Meeting Room] ❌ Round failed after ${totalDuration}s:`, error)
       
       hideLoading()
+      
+      // 如果是用户取消，不显示错误
+      if (error.message === 'Request cancelled by user') {
+        return
+      }
+      
       const errorMsg = error.response?.data?.detail || error.message
       message.error('运行失败: ' + errorMsg, 5)
     } finally {
       setSending(false)
+      cancelRequestRef.current = false
     }
+  }
+  
+  const handleStopOutput = () => {
+    console.log('[Meeting Room] Stopping current output...')
+    
+    // 设置取消标志
+    cancelRequestRef.current = true
+    
+    // 关闭流式连接
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
+    
+    // 清除流式消息
+    setStreamingMessage(null)
+    
+    // 重置发送状态
+    setSending(false)
+    
+    message.info('正在停止输出...')
   }
 
   const handleExport = async (format) => {
@@ -648,6 +769,26 @@ function MeetingRoom() {
     }
   }
 
+  const handleEditMinutesPrompt = () => {
+    minutesPromptForm.setFieldsValue({
+      minutes_prompt: meeting.config?.minutes_prompt || ''
+    })
+    setMinutesPromptModalVisible(true)
+  }
+
+  const handleUpdateMinutesPrompt = async (values) => {
+    try {
+      await meetingsAPI.updateConfig(meetingId, {
+        minutes_prompt: values.minutes_prompt || null
+      })
+      message.success('会议纪要提示词已更新')
+      setMinutesPromptModalVisible(false)
+      loadMeeting()
+    } catch (error) {
+      message.error('更新失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
   const getStatusBadge = (status) => {
     const statusMap = {
       active: { status: 'processing', text: '进行中' },
@@ -670,34 +811,231 @@ function MeetingRoom() {
     return <Empty description="会议不存在" />
   }
 
-  return (
-    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-      <Button 
-        icon={<ArrowLeftOutlined />} 
-        onClick={() => navigate('/meetings')}
-        style={{ marginBottom: 16 }}
-      >
-        返回列表
-      </Button>
+  // 计算未完成议题数量
+  const incompleteAgendaCount = meeting?.agenda?.filter(a => !a.completed).length || 0
 
-      <Card style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>{meeting.topic}</h2>
-            <Space style={{ marginTop: 8 }}>
-              {getStatusBadge(meeting.status)}
-              <Tag>轮次: {meeting.current_round}{meeting.max_rounds ? `/${meeting.max_rounds}` : ''}</Tag>
-              <Tag>消息: {meeting.messages.length}</Tag>
-            </Space>
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      {/* 左侧边栏 - 议题 */}
+      {meeting?.agenda && meeting.agenda.length > 0 && (
+        <div
+          style={{
+            width: agendaSidebarCollapsed ? '50px' : '260px',
+            transition: 'width 0.3s ease',
+            borderRight: '1px solid #e8e8e8',
+            padding: agendaSidebarCollapsed ? '12px 8px' : '12px',
+            height: '100vh',
+            overflowY: 'auto',
+            flexShrink: 0,
+            backgroundColor: '#fafafa'
+          }}
+        >
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: agendaSidebarCollapsed ? 'center' : 'space-between', 
+            alignItems: 'center',
+            marginBottom: 16
+          }}>
+            {!agendaSidebarCollapsed && (
+              <span style={{ fontWeight: 'bold', fontSize: '16px' }}>
+                议题列表
+              </span>
+            )}
+            <Button
+              type="text"
+              icon={agendaSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setAgendaSidebarCollapsed(!agendaSidebarCollapsed)}
+              title={agendaSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            />
           </div>
+          
+          {agendaSidebarCollapsed ? (
+            // 收起状态：显示图标和徽章
+            <div style={{ textAlign: 'center' }}>
+              <Badge count={incompleteAgendaCount} offset={[5, 0]}>
+                <UnorderedListOutlined style={{ fontSize: 28, color: '#1890ff' }} />
+              </Badge>
+              <div style={{ 
+                marginTop: 8, 
+                fontSize: '12px', 
+                color: '#666',
+                textAlign: 'center'
+              }}>
+                {incompleteAgendaCount}/{meeting.agenda.length}
+              </div>
+            </div>
+          ) : (
+            // 展开状态：显示完整议题列表
+            <div>
+              <div style={{ 
+                marginBottom: 12, 
+                fontSize: '12px', 
+                color: '#666',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span>进度: {meeting.agenda.length - incompleteAgendaCount}/{meeting.agenda.length}</span>
+                {isUserModerator() && meeting.status !== 'ended' && (
+                  <Button 
+                    type="link" 
+                    size="small" 
+                    icon={<PlusOutlined />}
+                    onClick={() => setAgendaModalVisible(true)}
+                    style={{ padding: 0 }}
+                  >
+                    添加
+                  </Button>
+                )}
+              </div>
+              
+              <List
+                dataSource={meeting.agenda}
+                renderItem={(item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      marginBottom: 12,
+                      padding: '12px',
+                      background: 'white',
+                      borderRadius: '6px',
+                      border: item.completed ? '1px solid #d9d9d9' : '1px solid #1890ff',
+                      boxShadow: item.completed ? 'none' : '0 2px 4px rgba(24, 144, 255, 0.1)',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <div style={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-start',
+                      gap: '8px'
+                    }}>
+                      <Checkbox 
+                        checked={item.completed} 
+                        disabled={!isUserModerator() || meeting.status === 'ended'}
+                        onChange={() => !item.completed && handleCompleteAgenda(item.id)}
+                        style={{ marginTop: '2px' }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ 
+                          fontWeight: item.completed ? 'normal' : 'bold',
+                          textDecoration: item.completed ? 'line-through' : 'none',
+                          color: item.completed ? '#999' : '#333',
+                          marginBottom: item.description ? '4px' : 0,
+                          wordBreak: 'break-word'
+                        }}>
+                          {item.title}
+                        </div>
+                        {item.description && (
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: '#666',
+                            marginTop: '4px',
+                            wordBreak: 'break-word'
+                          }}>
+                            {item.description}
+                          </div>
+                        )}
+                        {isUserModerator() && meeting.status !== 'ended' && (
+                          <div style={{ marginTop: '8px' }}>
+                            <Popconfirm
+                              title="确定要删除这个议题吗？"
+                              onConfirm={() => handleRemoveAgenda(item.id)}
+                              okText="确定"
+                              cancelText="取消"
+                            >
+                              <Button
+                                type="link"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                style={{ padding: 0, height: 'auto' }}
+                              >
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {item.completed && (
+                      <div style={{ 
+                        marginTop: '8px',
+                        paddingTop: '8px',
+                        borderTop: '1px solid #f0f0f0',
+                        fontSize: '11px',
+                        color: '#52c41a',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}>
+                        <CheckCircleOutlined />
+                        已完成
+                      </div>
+                    )}
+                  </div>
+                )}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 主内容区 - 对话界面 */}
+      <div style={{ 
+        flex: 1, 
+        minWidth: 0, 
+        display: 'flex', 
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+        backgroundColor: '#fff'
+      }}>
+        {/* 顶部导航栏 - 简洁设计 */}
+        <div style={{ 
+          flexShrink: 0, 
+          padding: '12px 20px',
+          borderBottom: '1px solid #e8e8e8',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backgroundColor: '#fff'
+        }}>
           <Space>
+            <Button 
+              icon={<ArrowLeftOutlined />} 
+              onClick={() => navigate('/meetings')}
+              type="text"
+            />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '16px' }}>{meeting.topic}</div>
+              <Space size="small" style={{ fontSize: '12px', color: '#666' }}>
+                {getStatusBadge(meeting.status)}
+                <span>轮次 {meeting.current_round}{meeting.max_rounds ? `/${meeting.max_rounds}` : ''}</span>
+                <span>消息 {meeting.messages.length}</span>
+              </Space>
+            </div>
+          </Space>
+          
+          <Space>
+            {/* 停止输出按钮 - 当正在发送或有流式消息时显示 */}
+            {(sending || streamingMessage) && (
+              <Button 
+                danger 
+                icon={<StopOutlined />} 
+                onClick={handleStopOutput} 
+                size="small"
+                type="primary"
+              >
+                停止输出
+              </Button>
+            )}
             {meeting.status === 'active' && (
-              <Button icon={<PauseCircleOutlined />} onClick={handlePause}>
+              <Button icon={<PauseCircleOutlined />} onClick={handlePause} size="small">
                 暂停
               </Button>
             )}
             {meeting.status === 'paused' && (
-              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStart}>
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStart} size="small">
                 继续
               </Button>
             )}
@@ -708,627 +1046,470 @@ function MeetingRoom() {
                 okText="确定"
                 cancelText="取消"
               >
-                <Button danger icon={<StopOutlined />}>
+                <Button danger icon={<StopOutlined />} size="small">
                   结束
                 </Button>
               </Popconfirm>
             )}
-            <Button.Group>
-              <Button icon={<DownloadOutlined />} onClick={() => handleExport('markdown')}>
-                导出 MD
-              </Button>
-              <Button icon={<DownloadOutlined />} onClick={() => handleExport('json')}>
-                导出 JSON
-              </Button>
-            </Button.Group>
+            <Button 
+              icon={settingsSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setSettingsSidebarCollapsed(!settingsSidebarCollapsed)}
+              type="text"
+            />
           </Space>
         </div>
 
-        <Divider />
-
-      </Card>
-
-      <Card title="会议信息" style={{ marginBottom: 16 }}>
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <strong>主持人：</strong>
-            <Tag color="gold" style={{ marginLeft: 8 }}>
-              {meeting.moderator_type === 'user' 
-                ? '用户' 
-                : meeting.participants.find(p => p.id === meeting.moderator_id)?.name || '未知'}
-            </Tag>
-          </div>
-
-          <div>
-            <strong>参与者：</strong>
-            <div style={{ marginTop: 8 }}>
-              {meeting.participants.map(p => {
-                const color = getAgentColor(p.id)
-                const isModerator = meeting.moderator_type === 'agent' && p.id === meeting.moderator_id
+        {/* 消息列表区域 - 占据主体 */}
+        <div style={{ 
+          flex: 1, 
+          overflowY: 'auto', 
+          padding: '20px',
+          backgroundColor: '#f9f9f9'
+        }}>
+          {!meeting.messages || meeting.messages.length === 0 ? (
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              height: '100%' 
+            }}>
+              <Empty description="暂无消息，开始对话吧" />
+            </div>
+          ) : (
+            <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+              {meeting.messages.map((msg, index) => {
+                const isUser = msg.speaker_type === 'user'
+                const agentColor = isUser ? null : getAgentColor(msg.speaker_id)
+                const isModerator = !isUser && meeting.moderator_type === 'agent' && msg.speaker_id === meeting.moderator_id
+                
                 return (
-                  <div 
-                    key={p.id}
-                    style={{ 
-                      marginBottom: '8px',
-                      padding: '8px 12px',
-                      background: color?.bg || '#f5f5f5',
-                      borderLeft: `4px solid ${color?.border}`,
-                      borderRadius: '4px'
-                    }}
-                  >
-                    <Space>
-                      <span style={{ 
-                        display: 'inline-block',
-                        width: '10px',
-                        height: '10px',
-                        borderRadius: '50%',
-                        backgroundColor: color?.border
-                      }} />
-                      <span style={{ fontWeight: 'bold' }}>{p.name}</span>
-                      {isModerator && <Tag color="gold">主持人 👑</Tag>}
-                    </Space>
-                    <div style={{ marginTop: 4, fontSize: '12px', color: '#666' }}>
-                      角色: {p.role_name}
+                  <div key={msg.id || index} style={{ marginBottom: 24 }}>
+                    <div style={{ marginBottom: 8 }}>
+                      <Space size="small">
+                        <Tag color={isUser ? 'green' : agentColor?.tag}>
+                          {msg.speaker_name}
+                          {isModerator && ' 👑'}
+                        </Tag>
+                        <span style={{ color: '#999', fontSize: '12px' }}>
+                          {new Date(msg.timestamp).toLocaleString('zh-CN')}
+                        </span>
+                        {msg.mentions && msg.mentions.length > 0 && (
+                          <>
+                            {msg.mentions.map((mention, i) => (
+                              <Tag key={i} color="orange" style={{ fontSize: '11px' }}>
+                                @{mention.mentioned_participant_name}
+                              </Tag>
+                            ))}
+                          </>
+                        )}
+                      </Space>
+                    </div>
+                    <div style={{ 
+                      padding: '16px', 
+                      background: '#fff',
+                      borderRadius: '8px',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                      border: isUser ? '1px solid #d9f7be' : `1px solid ${agentColor?.border || '#e8e8e8'}`,
+                      whiteSpace: markdownEnabled ? 'normal' : 'pre-wrap'
+                    }}>
+                      {markdownEnabled ? (
+                        <MarkdownMessage 
+                          content={msg.content} 
+                          reasoningContent={msg.reasoning_content}
+                        />
+                      ) : (
+                        <div>{highlightMentions(msg.content)}</div>
+                      )}
                     </div>
                   </div>
                 )
               })}
-            </div>
-          </div>
-
-          {meeting.discussion_style && (
-            <div>
-              <strong>讨论风格：</strong>
-              <Tag color="blue" style={{ marginLeft: 8 }}>
-                {meeting.discussion_style === 'formal' && '正式'}
-                {meeting.discussion_style === 'casual' && '轻松'}
-                {meeting.discussion_style === 'debate' && '辩论式'}
-              </Tag>
-            </div>
-          )}
-
-          <Divider style={{ margin: '12px 0' }} />
-
-          <div>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                  <strong>🔄 自动持续对话</strong>
-                  <span style={{ marginLeft: 8, fontSize: '12px', color: '#666' }}>
-                    (AI @ AI 时自动触发响应)
-                  </span>
-                </span>
-                <Switch 
-                  checked={autoResponseEnabled} 
-                  onChange={setAutoResponseEnabled}
-                  checkedChildren="开启"
-                  unCheckedChildren="关闭"
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                  <strong>⚡ 流式输出</strong>
-                  <span style={{ marginLeft: 8, fontSize: '12px', color: '#666' }}>
-                    (实时显示 AI 回复)
-                  </span>
-                </span>
-                <Switch 
-                  checked={streamingEnabled} 
-                  onChange={setStreamingEnabled}
-                  checkedChildren="开启"
-                  unCheckedChildren="关闭"
-                />
-              </div>
-              {autoResponseEnabled && streamingEnabled && (
-                <div style={{ 
-                  padding: '8px 12px', 
-                  background: '#e6f7ff', 
-                  borderLeft: '3px solid #1890ff',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  color: '#666'
-                }}>
-                  💡 提示：两个功能都已开启，将优先使用流式输出，并在完成后自动触发被 @ 的代理
+              
+              {/* 显示流式消息 */}
+              {streamingMessage && (
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Tag color="processing">
+                      {streamingMessage.speaker_name} ⚡
+                    </Tag>
+                    <span style={{ color: '#999', fontSize: '12px' }}>
+                      正在输入...
+                    </span>
+                  </div>
+                  <div style={{ 
+                    padding: '16px', 
+                    background: '#fff',
+                    borderRadius: '8px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    border: '1px solid #1890ff',
+                    animation: 'pulse 1.5s ease-in-out infinite'
+                  }}>
+                    {markdownEnabled ? (
+                      <MarkdownMessage 
+                        content={streamingMessage.content} 
+                        reasoningContent={streamingMessage.reasoning_content}
+                      />
+                    ) : (
+                      <>
+                        {streamingMessage.reasoning_content && (
+                          <div style={{ 
+                            marginBottom: '8px', 
+                            padding: '8px', 
+                            background: '#f8f9fa',
+                            borderRadius: '4px',
+                            color: '#666',
+                            fontSize: '13px'
+                          }}>
+                            💭 {streamingMessage.reasoning_content}
+                          </div>
+                        )}
+                        <div style={{ whiteSpace: 'pre-wrap' }}>
+                          {streamingMessage.content}
+                        </div>
+                      </>
+                    )}
+                    <span style={{ 
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '16px',
+                      background: '#1890ff',
+                      marginLeft: '2px',
+                      animation: 'blink 1s step-end infinite'
+                    }} />
+                  </div>
                 </div>
               )}
-            </Space>
-          </div>
+              
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
 
-          {meeting.speaking_length_preferences && Object.keys(meeting.speaking_length_preferences).length > 0 && (
-            <div>
-              <strong>发言长度偏好：</strong>
-              <div style={{ marginTop: 8 }}>
-                {Object.entries(meeting.speaking_length_preferences).map(([participantId, preference]) => {
-                  const participant = meeting.participants.find(p => p.id === participantId)
-                  if (!participant) return null
-                  
-                  const preferenceText = {
-                    brief: '简短',
-                    moderate: '中等',
-                    detailed: '详细'
-                  }[preference] || preference
-                  
+        {/* 底部输入区域 - 固定在底部 */}
+        {meeting.status !== 'ended' && (
+          <div style={{ 
+            flexShrink: 0, 
+            borderTop: '1px solid #e8e8e8',
+            padding: '16px 20px',
+            backgroundColor: '#fff'
+          }}>
+            <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <Space size="small" wrap>
+                  <span style={{ color: '#666', fontSize: '12px' }}>快速 @: </span>
+                  {meeting.participants.map(p => {
+                    const color = getAgentColor(p.id)
+                    return (
+                      <Tag 
+                        key={p.id}
+                        color={color?.tag}
+                        style={{ 
+                          cursor: 'pointer',
+                          fontSize: '12px'
+                        }}
+                        onClick={() => setUserMessage(prev => prev + `@${p.name} `)}
+                      >
+                        @{p.name}
+                      </Tag>
+                    )
+                  })}
+                </Space>
+              </div>
+              
+              <div style={{ position: 'relative' }}>
+                <TextArea
+                  ref={textAreaRef}
+                  rows={3}
+                  value={userMessage}
+                  onChange={handleMessageChange}
+                  placeholder="输入你的消息... (输入 @ 可以提及代理，Ctrl+Enter 发送)"
+                  disabled={meeting.status !== 'active'}
+                  style={{ 
+                    resize: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px'
+                  }}
+                  onPressEnter={(e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                      handleSendMessage('none')
+                    }
+                  }}
+                />
+                {showMentionSuggestions && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: '8px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    zIndex: 1000,
+                    marginBottom: '8px'
+                  }}>
+                    {mentionSuggestions.map(p => {
+                      const color = getAgentColor(p.id)
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleSelectMention(p)}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderBottom: '1px solid #f0f0f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                        >
+                          <span style={{ 
+                            display: 'inline-block',
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor: color?.border
+                          }} />
+                          <span style={{ fontWeight: 'bold' }}>{p.name}</span>
+                          <span style={{ color: '#999', fontSize: '12px' }}>({p.role_name})</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Space size="small">
+                  {/* 如果正在发送或有流式消息，显示停止按钮 */}
+                  {(sending || streamingMessage) ? (
+                    <Button
+                      danger
+                      type="primary"
+                      icon={<StopOutlined />}
+                      onClick={handleStopOutput}
+                    >
+                      停止输出
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="primary"
+                        icon={<SendOutlined />}
+                        onClick={() => handleSendMessage('mention')}
+                        disabled={meeting.status !== 'active'}
+                      >
+                        发送并 @ 代理响应
+                      </Button>
+                      <Button
+                        icon={<SendOutlined />}
+                        onClick={() => handleSendMessage('all')}
+                        disabled={meeting.status !== 'active'}
+                      >
+                        请求所有代理
+                      </Button>
+                      <Button
+                        onClick={handleRunRound}
+                        disabled={meeting.status !== 'active'}
+                      >
+                        🔄 运行一轮
+                      </Button>
+                    </>
+                  )}
+                </Space>
+                
+                <Space size="small">
+                  <span style={{ fontSize: '12px', color: '#666' }}>Markdown</span>
+                  <Switch 
+                    checked={markdownEnabled} 
+                    onChange={setMarkdownEnabled}
+                    size="small"
+                  />
+                </Space>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 右侧边栏 - 设置和信息 */}
+      <div
+        style={{
+          width: settingsSidebarCollapsed ? '0' : '320px',
+          transition: 'width 0.3s ease',
+          borderLeft: settingsSidebarCollapsed ? 'none' : '1px solid #e8e8e8',
+          height: '100vh',
+          overflowY: 'auto',
+          flexShrink: 0,
+          backgroundColor: '#fafafa',
+          overflow: settingsSidebarCollapsed ? 'hidden' : 'auto'
+        }}
+      >
+        {!settingsSidebarCollapsed && (
+          <div style={{ padding: '16px' }}>
+            {/* 会议控制 */}
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>会议控制</h4>
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                <Button.Group style={{ width: '100%' }}>
+                  <Button 
+                    icon={<DownloadOutlined />} 
+                    onClick={() => handleExport('markdown')}
+                    style={{ flex: 1 }}
+                  >
+                    导出 MD
+                  </Button>
+                  <Button 
+                    icon={<DownloadOutlined />} 
+                    onClick={() => handleExport('json')}
+                    style={{ flex: 1 }}
+                  >
+                    导出 JSON
+                  </Button>
+                </Button.Group>
+              </Space>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            {/* 功能开关 */}
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>功能设置</h4>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: '13px' }}>🔄 自动持续对话</div>
+                    <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                      AI @ AI 时自动触发
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={autoResponseEnabled} 
+                    onChange={setAutoResponseEnabled}
+                    size="small"
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: '13px' }}>⚡ 流式输出</div>
+                    <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                      实时显示 AI 回复
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={streamingEnabled} 
+                    onChange={setStreamingEnabled}
+                    size="small"
+                  />
+                </div>
+              </Space>
+            </div>
+
+            <Divider style={{ margin: '16px 0' }} />
+
+            {/* 参与者列表 */}
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>
+                参与者 ({meeting.participants.length})
+              </h4>
+              <div>
+                {meeting.participants.map(p => {
+                  const color = getAgentColor(p.id)
+                  const isModerator = meeting.moderator_type === 'agent' && p.id === meeting.moderator_id
                   return (
-                    <Tag key={participantId} style={{ marginBottom: '4px' }}>
-                      {participant.name}: {preferenceText}
-                    </Tag>
+                    <div 
+                      key={p.id}
+                      style={{ 
+                        marginBottom: '8px',
+                        padding: '10px',
+                        background: '#fff',
+                        borderLeft: `3px solid ${color?.border}`,
+                        borderRadius: '4px',
+                        fontSize: '13px'
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                        {p.name}
+                        {isModerator && <Tag color="gold" style={{ marginLeft: '4px', fontSize: '11px' }}>主持人</Tag>}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#666' }}>
+                        {p.role_name}
+                      </div>
+                      {meeting.status !== 'ended' && (
+                        <Button
+                          size="small"
+                          type="link"
+                          style={{ padding: '4px 0', height: 'auto', fontSize: '11px' }}
+                          onClick={() => handleRequestAgentById(p.id)}
+                          loading={sending}
+                        >
+                          请求发言
+                        </Button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
             </div>
-          )}
 
-          {meeting.agenda && meeting.agenda.length > 0 && (
+            <Divider style={{ margin: '16px 0' }} />
+
+            {/* 会议信息 */}
             <div>
-              <strong>当前议题：</strong>
-              <div style={{ marginTop: 8 }}>
-                {meeting.agenda.filter(a => !a.completed).map(item => (
-                  <Tag key={item.id} color="orange" style={{ marginBottom: '4px' }}>
-                    {item.title}
+              <h4 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>会议信息</h4>
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                <div style={{ fontSize: '12px' }}>
+                  <span style={{ color: '#666' }}>主持人：</span>
+                  <Tag color="gold" size="small" style={{ marginLeft: '4px' }}>
+                    {meeting.moderator_type === 'user' 
+                      ? '用户' 
+                      : meeting.participants.find(p => p.id === meeting.moderator_id)?.name || '未知'}
                   </Tag>
-                ))}
-                {meeting.agenda.filter(a => !a.completed).length === 0 && (
-                  <span style={{ color: '#999', fontSize: '12px' }}>所有议题已完成</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <strong>会议配置：</strong>
-            <div style={{ marginTop: 8 }}>
-              <Space wrap>
-                <Tag>发言顺序: {meeting.speaking_order === 'sequential' ? '顺序' : '随机'}</Tag>
-                {meeting.max_rounds && <Tag>最大轮次: {meeting.max_rounds}</Tag>}
-                {meeting.max_message_length && <Tag>最大消息长度: {meeting.max_message_length}</Tag>}
-              </Space>
-            </div>
-          </div>
-        </Space>
-      </Card>
-
-      {meeting.agenda && meeting.agenda.length > 0 && (
-        <Card 
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>会议议题 ({meeting.agenda.filter(a => !a.completed).length}/{meeting.agenda.length})</span>
-              {isUserModerator() && meeting.status !== 'ended' && (
-                <Button 
-                  type="primary" 
-                  size="small" 
-                  icon={<PlusOutlined />}
-                  onClick={() => setAgendaModalVisible(true)}
-                >
-                  添加议题
-                </Button>
-              )}
-            </div>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <List
-            dataSource={meeting.agenda}
-            renderItem={(item) => (
-              <List.Item
-                actions={
-                  isUserModerator() && meeting.status !== 'ended' ? [
-                    !item.completed && (
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<CheckCircleOutlined />}
-                        onClick={() => handleCompleteAgenda(item.id)}
-                      >
-                        完成
-                      </Button>
-                    ),
-                    <Popconfirm
-                      title="确定要删除这个议题吗？"
-                      onConfirm={() => handleRemoveAgenda(item.id)}
-                      okText="确定"
-                      cancelText="取消"
-                    >
-                      <Button
-                        type="link"
-                        danger
-                        size="small"
-                        icon={<DeleteOutlined />}
-                      >
-                        删除
-                      </Button>
-                    </Popconfirm>
-                  ] : []
-                }
-              >
-                <List.Item.Meta
-                  avatar={
-                    <Checkbox checked={item.completed} disabled />
-                  }
-                  title={
-                    <span style={{ textDecoration: item.completed ? 'line-through' : 'none' }}>
-                      {item.title}
-                    </span>
-                  }
-                  description={item.description}
-                />
-              </List.Item>
-            )}
-          />
-        </Card>
-      )}
-
-      {(!meeting.agenda || meeting.agenda.length === 0) && isUserModerator() && meeting.status !== 'ended' && (
-        <Card style={{ marginBottom: 16, textAlign: 'center' }}>
-          <Empty 
-            description="暂无议题"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />}
-              onClick={() => setAgendaModalVisible(true)}
-            >
-              添加第一个议题
-            </Button>
-          </Empty>
-        </Card>
-      )}
-
-      {meeting.current_minutes && (
-        <Card 
-          title={
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>会议纪要</span>
-              <Space>
-                <Button 
-                  size="small" 
-                  icon={<EditOutlined />}
-                  onClick={handleViewMinutes}
-                >
-                  查看/编辑
-                </Button>
-                <Button 
-                  size="small" 
-                  icon={<HistoryOutlined />}
-                  onClick={handleViewMinutesHistory}
-                >
-                  历史版本
-                </Button>
-                {meeting.status !== 'ended' && (
-                  <Button 
-                    size="small" 
-                    type="primary"
-                    onClick={() => setMinutesModalVisible(true)}
-                  >
-                    重新生成
-                  </Button>
-                )}
-              </Space>
-            </div>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <div style={{ 
-            padding: '12px', 
-            background: '#f9f9f9',
-            borderRadius: '4px',
-            whiteSpace: 'pre-wrap'
-          }}>
-            <div style={{ marginBottom: 8, color: '#666', fontSize: '12px' }}>
-              版本 {meeting.current_minutes.version} · 
-              创建于 {new Date(meeting.current_minutes.created_at).toLocaleString('zh-CN')} · 
-              创建者: {meeting.current_minutes.created_by === 'user' ? '用户' : 
-                meeting.participants.find(p => p.id === meeting.current_minutes.created_by)?.name || '未知'}
-            </div>
-            <MarkdownMessage content={meeting.current_minutes.summary || meeting.current_minutes.content} />
-          </div>
-        </Card>
-      )}
-
-      {!meeting.current_minutes && meeting.messages.length > 0 && meeting.status !== 'ended' && (
-        <Card style={{ marginBottom: 16, textAlign: 'center' }}>
-          <Empty 
-            description="暂无会议纪要"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />}
-              onClick={() => setMinutesModalVisible(true)}
-            >
-              生成会议纪要
-            </Button>
-          </Empty>
-        </Card>
-      )}
-
-      <Card 
-        title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>会议消息 ({meeting.messages?.length || 0})</span>
-            <Space>
-              <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Markdown 渲染</span>
-              <Switch 
-                checked={markdownEnabled} 
-                onChange={setMarkdownEnabled}
-                size="small"
-              />
-            </Space>
-          </div>
-        }
-        style={{ marginBottom: 16 }}
-        bodyStyle={{ maxHeight: '500px', overflowY: 'auto' }}
-      >
-        {!meeting.messages || meeting.messages.length === 0 ? (
-          <Empty description="暂无消息" />
-        ) : (
-          <div>
-            {meeting.messages.map((msg, index) => {
-              const isUser = msg.speaker_type === 'user'
-              const agentColor = isUser ? null : getAgentColor(msg.speaker_id)
-              const isModerator = !isUser && meeting.moderator_type === 'agent' && msg.speaker_id === meeting.moderator_id
-              
-              return (
-                <div key={msg.id || index} style={{ marginBottom: 16 }}>
-                  <div style={{ marginBottom: 4 }}>
-                    <Tag color={isUser ? 'green' : agentColor?.tag}>
-                      {msg.speaker_name}
-                      {isModerator && ' 👑'}
+                </div>
+                {meeting.discussion_style && (
+                  <div style={{ fontSize: '12px' }}>
+                    <span style={{ color: '#666' }}>讨论风格：</span>
+                    <Tag size="small" style={{ marginLeft: '4px' }}>
+                      {meeting.discussion_style === 'formal' && '正式'}
+                      {meeting.discussion_style === 'casual' && '轻松'}
+                      {meeting.discussion_style === 'debate' && '辩论式'}
                     </Tag>
-                    <span style={{ color: '#999', fontSize: '12px' }}>
-                      轮次 {msg.round_number} · {new Date(msg.timestamp).toLocaleString('zh-CN')}
-                    </span>
-                    {msg.mentions && msg.mentions.length > 0 && (
-                      <span style={{ marginLeft: 8 }}>
-                        {msg.mentions.map((mention, i) => (
-                          <Tag key={i} color="orange" style={{ fontSize: '11px' }}>
-                            @{mention.mentioned_participant_name}
-                          </Tag>
-                        ))}
-                      </span>
-                    )}
                   </div>
-                  <div style={{ 
-                    padding: '12px', 
-                    background: isUser ? '#f0f9ff' : agentColor?.bg || '#f5f5f5',
-                    borderLeft: isUser ? '4px solid #52c41a' : `4px solid ${agentColor?.border || '#999'}`,
-                    borderRadius: '4px',
-                    whiteSpace: markdownEnabled ? 'normal' : 'pre-wrap'
-                  }}>
-                    {markdownEnabled ? (
-                      <MarkdownMessage 
-                        content={msg.content} 
-                        reasoningContent={msg.reasoning_content}
-                      />
-                    ) : (
-                      <div>{highlightMentions(msg.content)}</div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-            
-            {/* 显示流式消息 */}
-            {streamingMessage && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 4 }}>
-                  <Tag color="processing">
-                    {streamingMessage.speaker_name} ⚡
+                )}
+                <div style={{ fontSize: '12px' }}>
+                  <span style={{ color: '#666' }}>发言顺序：</span>
+                  <Tag size="small" style={{ marginLeft: '4px' }}>
+                    {meeting.speaking_order === 'sequential' ? '顺序' : '随机'}
                   </Tag>
-                  <span style={{ color: '#999', fontSize: '12px' }}>
-                    正在输入...
-                  </span>
                 </div>
-                <div style={{ 
-                  padding: '12px', 
-                  background: '#e6f7ff',
-                  borderLeft: '4px solid #1890ff',
-                  borderRadius: '4px',
-                  animation: 'pulse 1.5s ease-in-out infinite'
-                }}>
-                  {markdownEnabled ? (
-                    <MarkdownMessage 
-                      content={streamingMessage.content} 
-                      reasoningContent={streamingMessage.reasoning_content}
-                    />
-                  ) : (
-                    <>
-                      {streamingMessage.reasoning_content && (
-                        <div style={{ 
-                          marginBottom: '8px', 
-                          padding: '8px', 
-                          background: '#f8f9fa',
-                          borderRadius: '4px',
-                          color: '#666',
-                          fontSize: '13px'
-                        }}>
-                          💭 {streamingMessage.reasoning_content}
-                        </div>
-                      )}
-                      <div style={{ whiteSpace: 'pre-wrap' }}>
-                        {streamingMessage.content}
-                      </div>
-                    </>
-                  )}
-                  <span style={{ 
-                    display: 'inline-block',
-                    width: '8px',
-                    height: '16px',
-                    background: '#1890ff',
-                    marginLeft: '2px',
-                    animation: 'blink 1s step-end infinite'
-                  }} />
+                {meeting.max_rounds && (
+                  <div style={{ fontSize: '12px' }}>
+                    <span style={{ color: '#666' }}>最大轮次：</span>
+                    <span style={{ marginLeft: '4px' }}>{meeting.max_rounds}</span>
+                  </div>
+                )}
+                <div style={{ fontSize: '12px' }}>
+                  <span style={{ color: '#666' }}>纪要提示词：</span>
+                  <Button 
+                    type="link" 
+                    size="small" 
+                    onClick={handleEditMinutesPrompt}
+                    style={{ padding: '0 4px', height: 'auto' }}
+                  >
+                    {meeting.config?.minutes_prompt ? '已自定义' : '使用默认'}
+                  </Button>
                 </div>
-              </div>
-            )}
-            
-            <div ref={messagesEndRef} />
+              </Space>
+            </div>
           </div>
         )}
-      </Card>
+      </div>
 
-      {meeting.status !== 'ended' && (
-        <Card title="发送消息">
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <div style={{ marginBottom: '8px' }}>
-              <span style={{ color: '#666', fontSize: '12px' }}>快速 @: </span>
-              {meeting.participants.map(p => {
-                const color = getAgentColor(p.id)
-                return (
-                  <Tag 
-                    key={p.id}
-                    color={color?.tag}
-                    style={{ 
-                      cursor: 'pointer', 
-                      marginBottom: '4px',
-                      borderLeft: `3px solid ${color?.border}`,
-                      paddingLeft: '8px'
-                    }}
-                    onClick={() => setUserMessage(prev => prev + `@${p.name} `)}
-                  >
-                    @{p.name}
-                  </Tag>
-                )
-              })}
-            </div>
-            <div style={{ position: 'relative' }}>
-              <TextArea
-                ref={textAreaRef}
-                rows={4}
-                value={userMessage}
-                onChange={handleMessageChange}
-                placeholder="输入你的消息... (输入 @ 可以提及代理)"
-                disabled={meeting.status !== 'active'}
-                onPressEnter={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    handleSendMessage('none')
-                  }
-                }}
-              />
-              {showMentionSuggestions && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: 0,
-                  right: 0,
-                  backgroundColor: 'white',
-                  border: '1px solid #d9d9d9',
-                  borderRadius: '4px',
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                  zIndex: 1000,
-                  marginBottom: '4px'
-                }}>
-                  {mentionSuggestions.map(p => {
-                    const color = getAgentColor(p.id)
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => handleSelectMention(p)}
-                        style={{
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid #f0f0f0',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                      >
-                        <span style={{ 
-                          display: 'inline-block',
-                          width: '8px',
-                          height: '8px',
-                          borderRadius: '50%',
-                          backgroundColor: color?.border
-                        }} />
-                        <span style={{ fontWeight: 'bold' }}>{p.name}</span>
-                        <span style={{ color: '#999', fontSize: '12px' }}>({p.role_name})</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-            <Space wrap>
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={() => handleSendMessage('mention')}
-                loading={sending}
-                disabled={meeting.status !== 'active'}
-              >
-                发送并 @ 代理响应
-              </Button>
-              <Button
-                icon={<SendOutlined />}
-                onClick={() => handleSendMessage('all')}
-                loading={sending}
-                disabled={meeting.status !== 'active'}
-              >
-                发送并请求所有代理
-              </Button>
-              <Button
-                icon={<SendOutlined />}
-                onClick={() => handleSendMessage('none')}
-                loading={sending}
-                disabled={meeting.status !== 'active'}
-              >
-                仅发送消息
-              </Button>
-            </Space>
-            <div style={{ color: '#999', fontSize: '12px', marginTop: '8px' }}>
-              💡 提示：
-              <br />
-              • 使用 <code>@代理名</code> 在消息中提及代理，然后点击"发送并 @ 代理响应"
-              <br />
-              • 例如：<code>@游戏策划师 你觉得这个想法怎么样？</code>
-              <br />
-              • 可以同时 @ 多个代理：<code>@Alice @Bob 你们怎么看？</code>
-            </div>
-
-            <Divider>手动控制代理发言</Divider>
-
-            <Space style={{ width: '100%', marginBottom: 16 }}>
-              <Button
-                type="primary"
-                onClick={handleRunRound}
-                loading={sending}
-                disabled={meeting.status !== 'active'}
-                style={{ flex: 1 }}
-              >
-                🔄 运行一轮 (所有代理依次发言)
-              </Button>
-            </Space>
-
-            <Space style={{ width: '100%' }}>
-              <Select
-                style={{ flex: 1, minWidth: 200 }}
-                placeholder="选择特定代理发言"
-                value={selectedAgent}
-                onChange={setSelectedAgent}
-                disabled={meeting.status !== 'active'}
-              >
-                {meeting.participants.map(p => (
-                  <Option key={p.id} value={p.id}>
-                    {p.name} ({p.role_name})
-                  </Option>
-                ))}
-              </Select>
-              <Button
-                onClick={handleRequestAgent}
-                loading={sending}
-                disabled={meeting.status !== 'active'}
-              >
-                请求发言
-              </Button>
-            </Space>
-          </Space>
-        </Card>
-      )}
-
+      {/* 模态框 */}
       <Modal
         title="添加议题"
         open={agendaModalVisible}
@@ -1387,6 +1568,39 @@ function MeetingRoom() {
             ))}
           </Select>
         </Space>
+      </Modal>
+
+      <Modal
+        title="编辑会议纪要提示词"
+        open={minutesPromptModalVisible}
+        onCancel={() => {
+          setMinutesPromptModalVisible(false)
+          minutesPromptForm.resetFields()
+        }}
+        onOk={() => minutesPromptForm.submit()}
+        width={700}
+      >
+        <Form form={minutesPromptForm} layout="vertical" onFinish={handleUpdateMinutesPrompt}>
+          <Form.Item
+            name="minutes_prompt"
+            label="自定义提示词"
+            tooltip="留空则使用系统默认提示词"
+          >
+            <Input.TextArea 
+              rows={10} 
+              placeholder="你是一名专业的会议纪要助理，请根据以下会议内容，生成清晰、准确、可执行的会议纪要。&#10;&#10;要求：&#10;- 结构化输出（会议背景、参会人员、讨论要点、决策事项、待办任务、风险与关注点）&#10;- 用词客观中立，不评价人员&#10;- 不遗漏关键数字、日期、负责人、截止时间&#10;- 可自动识别隐含的任务和风险&#10;- 所有待办事项以 To-Do 列表总结"
+            />
+          </Form.Item>
+          <div style={{ 
+            padding: '12px', 
+            background: '#f0f5ff', 
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#666'
+          }}>
+            💡 提示：自定义提示词将作为 AI 的系统提示（system prompt），用于指导会议纪要的生成方式和格式。
+          </div>
+        </Form>
       </Modal>
 
       <Modal
@@ -1453,6 +1667,95 @@ function MeetingRoom() {
           )}
         />
       </Modal>
+
+      {/* 会议纪要浮动按钮 */}
+      <FloatButton
+        icon={meeting.current_minutes ? <FileTextOutlined /> : <PlusOutlined />}
+        tooltip={meeting.current_minutes ? '查看会议纪要' : '生成会议纪要'}
+        onClick={() => {
+          if (meeting.current_minutes) {
+            setMinutesDrawerVisible(true)
+          } else {
+            setMinutesModalVisible(true)
+          }
+        }}
+        badge={meeting.current_minutes ? { dot: true, color: 'green' } : null}
+        style={{ left: 24, top: 100 }}
+      />
+
+      {/* 会议纪要抽屉 */}
+      <Drawer
+        title="会议纪要"
+        placement="right"
+        width={600}
+        open={minutesDrawerVisible}
+        onClose={() => setMinutesDrawerVisible(false)}
+        extra={
+          <Space>
+            <Button 
+              icon={<EditOutlined />} 
+              onClick={() => {
+                setMinutesDrawerVisible(false)
+                handleViewMinutes()
+              }}
+            >
+              编辑
+            </Button>
+            <Button 
+              icon={<HistoryOutlined />} 
+              onClick={() => {
+                setMinutesDrawerVisible(false)
+                handleViewMinutesHistory()
+              }}
+            >
+              历史
+            </Button>
+            {meeting.status !== 'ended' && (
+              <Button 
+                type="primary" 
+                onClick={() => {
+                  setMinutesDrawerVisible(false)
+                  setMinutesModalVisible(true)
+                }}
+              >
+                重新生成
+              </Button>
+            )}
+          </Space>
+        }
+      >
+        {meeting.current_minutes ? (
+          <div>
+            <div style={{ marginBottom: 16, color: '#666', fontSize: '12px' }}>
+              版本 {meeting.current_minutes.version} · 
+              创建于 {new Date(meeting.current_minutes.created_at).toLocaleString('zh-CN')} · 
+              创建者: {meeting.current_minutes.created_by === 'user' ? '用户' : 
+                meeting.participants.find(p => p.id === meeting.current_minutes.created_by)?.name || '未知'}
+            </div>
+            <div style={{ 
+              padding: '12px', 
+              background: '#f9f9f9',
+              borderRadius: '4px',
+              whiteSpace: 'pre-wrap'
+            }}>
+              <MarkdownMessage content={meeting.current_minutes.summary || meeting.current_minutes.content} />
+            </div>
+          </div>
+        ) : (
+          <Empty description="暂无会议纪要">
+            <Button 
+              type="primary" 
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setMinutesDrawerVisible(false)
+                setMinutesModalVisible(true)
+              }}
+            >
+              生成会议纪要
+            </Button>
+          </Empty>
+        )}
+      </Drawer>
     </div>
   )
 }

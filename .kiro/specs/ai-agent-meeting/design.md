@@ -1093,3 +1093,492 @@ agent_strategy = st.builds(
 - 属性测试帮助发现边缘情况和意外行为
 - 测试失败时，分析失败的输入以改进实现或规范
 
+
+
+## 前端用户体验优化设计
+
+### 1. 首页优化 - 进行中会议展示
+
+#### 设计目标
+提升首页吸引力，让用户快速了解当前活动并继续参与进行中的会议。
+
+#### 实现方案
+
+**数据获取**：
+- 在首页加载时，获取所有会议列表
+- 过滤出状态为 `active` 的会议
+- 按 `updated_at` 降序排序
+- 取前 5 个会议
+
+**展示内容**：
+```jsx
+<Card title="进行中的会议" style={{ marginBottom: 24 }}>
+  {activeMeetings.length === 0 ? (
+    <Empty description="暂无进行中的会议" />
+  ) : (
+    <List
+      dataSource={activeMeetings}
+      renderItem={(meeting) => (
+        <List.Item
+          onClick={() => navigate(`/meetings/${meeting.id}`)}
+          style={{ cursor: 'pointer' }}
+        >
+          <List.Item.Meta
+            title={meeting.topic}
+            description={
+              <Space>
+                <Tag>{meeting.participants.length} 个代理</Tag>
+                <Tag>{meeting.messages.length} 条消息</Tag>
+                <span>最后更新: {formatTime(meeting.updated_at)}</span>
+              </Space>
+            }
+          />
+        </List.Item>
+      )}
+    />
+  )}
+</Card>
+```
+
+### 2. 代理列表页面优化 - 详细信息展示
+
+#### 设计目标
+让用户更好地了解每个代理的特点和配置，提供更丰富的信息展示。
+
+#### 实现方案
+
+**卡片布局增强**：
+```jsx
+<Card>
+  <Card.Meta
+    title={
+      <Space>
+        <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
+          {agent.name}
+        </span>
+        <Tag color="blue">{agent.role.name}</Tag>
+      </Space>
+    }
+    description={
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {/* 角色描述 - 可展开/收起 */}
+        <div>
+          <Text strong>角色描述：</Text>
+          <Paragraph
+            ellipsis={{
+              rows: 2,
+              expandable: true,
+              symbol: '展开'
+            }}
+          >
+            {agent.role.description}
+          </Paragraph>
+        </div>
+        
+        {/* 模型信息 */}
+        <div>
+          <Text strong>模型：</Text>
+          <Space>
+            <Tag color="green">{agent.model_config.provider}</Tag>
+            <Tag>{agent.model_config.model_name}</Tag>
+          </Space>
+        </div>
+      </Space>
+    }
+  />
+</Card>
+```
+
+**空状态优化**：
+```jsx
+{agents.length === 0 && (
+  <Empty
+    description="还没有创建任何代理"
+    image={Empty.PRESENTED_IMAGE_SIMPLE}
+  >
+    <Button type="primary" onClick={() => navigate('/agents/create')}>
+      创建第一个代理
+    </Button>
+  </Empty>
+)}
+```
+
+### 3. 会议信息面板折叠设计
+
+#### 设计目标
+节省屏幕空间，让用户专注于会议消息内容，同时保持重要信息的可访问性。
+
+#### 实现方案
+
+**状态管理**：
+```jsx
+const [meetingInfoCollapsed, setMeetingInfoCollapsed] = useState(
+  localStorage.getItem('meetingInfoCollapsed') === 'true'
+)
+
+useEffect(() => {
+  localStorage.setItem('meetingInfoCollapsed', meetingInfoCollapsed)
+}, [meetingInfoCollapsed])
+```
+
+**折叠面板结构**：
+```jsx
+<Card 
+  style={{ marginBottom: 16 }}
+  title={
+    <div 
+      onClick={() => setMeetingInfoCollapsed(!meetingInfoCollapsed)}
+      style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+    >
+      <Space>
+        <span>会议信息</span>
+        {meetingInfoCollapsed && (
+          <Space size="small">
+            <Tag>{meeting.participants.length} 个参与者</Tag>
+            <Tag>{getStatusBadge(meeting.status)}</Tag>
+          </Space>
+        )}
+      </Space>
+      {meetingInfoCollapsed ? <DownOutlined /> : <UpOutlined />}
+    </div>
+  }
+>
+  {!meetingInfoCollapsed && (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      {/* 完整的会议信息内容 */}
+    </Space>
+  )}
+</Card>
+```
+
+### 4. 会议纪要图标化设计
+
+#### 设计目标
+将会议纪要以图标形式固定在界面，点击后以抽屉或弹窗形式展示，节省主要空间。
+
+#### 实现方案
+
+**浮动按钮**：
+```jsx
+{/* 固定在右上角的纪要图标 */}
+<FloatButton
+  icon={meeting.current_minutes ? <FileTextOutlined /> : <PlusOutlined />}
+  tooltip={meeting.current_minutes ? '查看会议纪要' : '生成会议纪要'}
+  onClick={() => setMinutesDrawerVisible(true)}
+  style={{ right: 24, top: 100 }}
+  badge={meeting.current_minutes ? { dot: true, color: 'green' } : null}
+/>
+```
+
+**抽屉展示**：
+```jsx
+<Drawer
+  title="会议纪要"
+  placement="right"
+  width={600}
+  open={minutesDrawerVisible}
+  onClose={() => setMinutesDrawerVisible(false)}
+  extra={
+    <Space>
+      <Button icon={<EditOutlined />} onClick={handleEditMinutes}>
+        编辑
+      </Button>
+      <Button icon={<HistoryOutlined />} onClick={handleViewHistory}>
+        历史
+      </Button>
+      {meeting.status !== 'ended' && (
+        <Button type="primary" onClick={handleRegenerateMinutes}>
+          重新生成
+        </Button>
+      )}
+    </Space>
+  }
+>
+  {meeting.current_minutes ? (
+    <div>
+      <div style={{ marginBottom: 16, color: '#666', fontSize: '12px' }}>
+        版本 {meeting.current_minutes.version} · 
+        {new Date(meeting.current_minutes.created_at).toLocaleString('zh-CN')}
+      </div>
+      <MarkdownMessage content={meeting.current_minutes.content} />
+    </div>
+  ) : (
+    <Empty description="暂无会议纪要">
+      <Button type="primary" onClick={handleGenerateMinutes}>
+        生成会议纪要
+      </Button>
+    </Empty>
+  )}
+</Drawer>
+```
+
+### 5. 议题侧边栏设计
+
+#### 设计目标
+将议题列表以侧边栏形式展示，可收起为图标，方便用户随时查看议题而不影响消息阅读。
+
+#### 实现方案
+
+**状态管理**：
+```jsx
+const [agendaSidebarCollapsed, setAgendaSidebarCollapsed] = useState(
+  localStorage.getItem('agendaSidebarCollapsed') === 'true'
+)
+
+useEffect(() => {
+  localStorage.setItem('agendaSidebarCollapsed', agendaSidebarCollapsed)
+}, [agendaSidebarCollapsed])
+```
+
+**侧边栏布局**：
+```jsx
+<div style={{ display: 'flex', gap: 16 }}>
+  {/* 议题侧边栏 */}
+  {meeting.agenda && meeting.agenda.length > 0 && (
+    <div
+      style={{
+        width: agendaSidebarCollapsed ? '60px' : '300px',
+        transition: 'width 0.3s',
+        borderRight: '1px solid #f0f0f0',
+        padding: '16px',
+        position: 'sticky',
+        top: 0,
+        height: '100vh',
+        overflowY: 'auto'
+      }}
+    >
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        marginBottom: 16
+      }}>
+        {!agendaSidebarCollapsed && <span style={{ fontWeight: 'bold' }}>议题列表</span>}
+        <Button
+          type="text"
+          icon={agendaSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          onClick={() => setAgendaSidebarCollapsed(!agendaSidebarCollapsed)}
+        />
+      </div>
+      
+      {agendaSidebarCollapsed ? (
+        <Badge count={meeting.agenda.filter(a => !a.completed).length}>
+          <FileTextOutlined style={{ fontSize: 24 }} />
+        </Badge>
+      ) : (
+        <List
+          dataSource={meeting.agenda}
+          renderItem={(item) => (
+            <List.Item
+              style={{
+                padding: '8px 0',
+                borderBottom: '1px solid #f0f0f0'
+              }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Space>
+                  <Checkbox checked={item.completed} disabled />
+                  <Text
+                    style={{
+                      textDecoration: item.completed ? 'line-through' : 'none',
+                      fontWeight: item.completed ? 'normal' : 'bold'
+                    }}
+                  >
+                    {item.title}
+                  </Text>
+                </Space>
+                {item.description && (
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {item.description}
+                  </Text>
+                )}
+              </Space>
+            </List.Item>
+          )}
+        />
+      )}
+    </div>
+  )}
+  
+  {/* 主要内容区域 */}
+  <div style={{ flex: 1 }}>
+    {/* 会议消息等内容 */}
+  </div>
+</div>
+```
+
+### 6. 消息输入框固定底部设计
+
+#### 设计目标
+将消息输入区域固定在底部，限制高度占比，为消息历史留出更多空间。
+
+#### 实现方案
+
+**整体布局结构**：
+```jsx
+<div style={{ 
+  display: 'flex', 
+  flexDirection: 'column', 
+  height: 'calc(100vh - 64px)' // 减去顶部导航栏高度
+}}>
+  {/* 顶部：会议标题和控制按钮 */}
+  <div style={{ flexShrink: 0 }}>
+    <Card>
+      {/* 会议标题、状态、控制按钮 */}
+    </Card>
+  </div>
+  
+  {/* 中间：可折叠的会议信息 */}
+  {!meetingInfoCollapsed && (
+    <div style={{ flexShrink: 0 }}>
+      <Card>
+        {/* 会议信息内容 */}
+      </Card>
+    </div>
+  )}
+  
+  {/* 主要内容：消息列表（可滚动） */}
+  <div style={{ 
+    flex: 1, 
+    overflowY: 'auto',
+    marginBottom: 16
+  }}>
+    <Card title="会议消息">
+      {/* 消息列表 */}
+    </Card>
+  </div>
+  
+  {/* 底部：固定的输入区域 */}
+  {meeting.status !== 'ended' && (
+    <div style={{ 
+      flexShrink: 0,
+      maxHeight: '20vh', // 限制最大高度为视口的20%
+      borderTop: '1px solid #f0f0f0',
+      backgroundColor: 'white',
+      padding: '16px',
+      position: 'sticky',
+      bottom: 0,
+      zIndex: 10
+    }}>
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {/* 快速@标签 */}
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ color: '#666', fontSize: '12px' }}>快速 @: </span>
+          {meeting.participants.map(p => (
+            <Tag 
+              key={p.id}
+              style={{ cursor: 'pointer' }}
+              onClick={() => setUserMessage(prev => prev + `@${p.name} `)}
+            >
+              @{p.name}
+            </Tag>
+          ))}
+        </div>
+        
+        {/* 输入框 */}
+        <TextArea
+          rows={3}
+          value={userMessage}
+          onChange={handleMessageChange}
+          placeholder="输入你的消息... (输入 @ 可以提及代理)"
+          disabled={meeting.status !== 'active'}
+          style={{ 
+            resize: 'none', // 禁止手动调整大小
+            maxHeight: '15vh', // 限制输入框最大高度
+            overflowY: 'auto' // 内容超出时内部滚动
+          }}
+        />
+        
+        {/* 发送按钮 */}
+        <Space wrap>
+          <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>
+            发送
+          </Button>
+          {/* 其他操作按钮 */}
+        </Space>
+      </Space>
+    </div>
+  )}
+</div>
+```
+
+**关键CSS样式**：
+```css
+/* 确保输入区域固定在底部 */
+.message-input-area {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  z-index: 10;
+  max-height: 20vh;
+  border-top: 1px solid #f0f0f0;
+  padding: 16px;
+}
+
+/* 输入框内部滚动 */
+.message-textarea {
+  resize: none;
+  max-height: 15vh;
+  overflow-y: auto;
+}
+
+/* 消息列表区域 */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+```
+
+## 前端优化正确性属性
+
+### 首页优化属性
+
+**属性 58: 进行中会议列表展示**
+*对于任何*首页访问，如果存在进行中的会议，系统应显示最多5个按最后更新时间排序的会议
+**验证需求: 16.1, 16.2, 16.5**
+
+**属性 59: 进行中会议点击跳转**
+*对于任何*首页显示的进行中会议，点击后应正确跳转到对应的会议室页面
+**验证需求: 16.3**
+
+### 代理列表优化属性
+
+**属性 60: 代理详细信息展示**
+*对于任何*代理列表项，应包含代理名称、角色名称、角色描述、模型供应商和模型名称
+**验证需求: 17.1, 17.2, 17.4**
+
+**属性 61: 角色描述展开功能**
+*对于任何*超过指定长度的角色描述，应提供展开/收起功能
+**验证需求: 17.3**
+
+### 会议界面优化属性
+
+**属性 62: 会议信息面板折叠状态持久化**
+*对于任何*会议信息面板的折叠/展开状态，刷新页面后应保持用户上次的选择
+**验证需求: 18.5**
+
+**属性 63: 折叠面板显示摘要信息**
+*对于任何*折叠状态的会议信息面板，标题栏应显示关键信息摘要（参与者数量、会议状态）
+**验证需求: 18.3**
+
+**属性 64: 纪要图标状态指示**
+*对于任何*会议，如果存在纪要则显示纪要图标，否则显示生成纪要的入口图标
+**验证需求: 19.1, 19.5**
+
+**属性 65: 议题侧边栏状态持久化**
+*对于任何*议题侧边栏的展开/收起状态，刷新页面后应保持用户上次的选择
+**验证需求: 20.6**
+
+**属性 66: 议题侧边栏徽章显示**
+*对于任何*收起状态的议题侧边栏，应显示当前未完成议题数量的徽章
+**验证需求: 20.3**
+
+**属性 67: 消息输入区域高度限制**
+*对于任何*会议室页面，消息输入区域的高度应不超过视口高度的20%
+**验证需求: 21.2**
+
+**属性 68: 输入框固定底部**
+*对于任何*消息列表滚动操作，输入区域应保持固定在底部不随滚动移动
+**验证需求: 21.3**
+

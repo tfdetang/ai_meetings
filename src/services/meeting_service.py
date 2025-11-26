@@ -969,8 +969,18 @@ class MeetingService(IMeetingService):
             )
         ]
         
-        system_prompt = """你是一个专业的会议记录员。你的任务是总结会议内容，提取关键决策和待办事项。
-请以结构化的方式组织信息，确保内容清晰、准确、简洁。"""
+        # 使用自定义 prompt 或默认 prompt
+        if meeting.config.minutes_prompt:
+            system_prompt = meeting.config.minutes_prompt
+        else:
+            system_prompt = """你是一名专业的会议纪要助理，请根据以下会议内容，生成清晰、准确、可执行的会议纪要。
+
+要求：
+- 结构化输出（会议背景、参会人员、讨论要点、决策事项、待办任务、风险与关注点）
+- 用词客观中立，不评价人员
+- 不遗漏关键数字、日期、负责人、截止时间
+- 可自动识别隐含的任务和风险
+- 所有待办事项以 To-Do 列表总结"""
         
         response_content = await adapter.send_message(
             messages=conversation_messages,

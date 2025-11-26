@@ -111,6 +111,7 @@ class MeetingConfig:
     speaking_order: SpeakingOrder = SpeakingOrder.SEQUENTIAL
     discussion_style: DiscussionStyle = DiscussionStyle.FORMAL
     speaking_length_preferences: Optional[Dict[str, SpeakingLength]] = None
+    minutes_prompt: Optional[str] = None  # 自定义会议纪要生成提示词
 
     def __post_init__(self):
         """Set defaults"""
@@ -125,6 +126,7 @@ class MeetingConfig:
             'speaking_order': self.speaking_order.value,
             'discussion_style': self.discussion_style.value,
             'speaking_length_preferences': {k: v.value for k, v in self.speaking_length_preferences.items()} if self.speaking_length_preferences else {},
+            'minutes_prompt': self.minutes_prompt,
         }
 
     @classmethod
@@ -140,6 +142,7 @@ class MeetingConfig:
             speaking_order=SpeakingOrder(data.get('speaking_order', 'sequential')),
             discussion_style=DiscussionStyle(data.get('discussion_style', 'formal')),
             speaking_length_preferences=speaking_length_prefs,
+            minutes_prompt=data.get('minutes_prompt'),
         )
 
 

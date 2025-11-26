@@ -1,4 +1,4 @@
-import { Card, Row, Col, Statistic, Button } from 'antd'
+import { Card, Row, Col, Statistic, Button, List, Empty, Tag, Space } from 'antd'
 import { TeamOutlined, CommentOutlined, RocketOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
@@ -7,6 +7,7 @@ import { agentsAPI, meetingsAPI } from '../api/client'
 function Home() {
   const navigate = useNavigate()
   const [stats, setStats] = useState({ agents: 0, meetings: 0, activeMeetings: 0 })
+  const [activeMeetings, setActiveMeetings] = useState([])
 
   useEffect(() => {
     loadStats()
@@ -18,15 +19,37 @@ function Home() {
         agentsAPI.list(),
         meetingsAPI.list()
       ])
-      const activeMeetings = meetingsRes.data.filter(m => m.status === 'active').length
+      
+      // Filter active meetings, sort by updated_at descending, and take top 5
+      const activeMeetingsList = meetingsRes.data
+        .filter(m => m.status === 'active')
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
+        .slice(0, 5)
+      
+      setActiveMeetings(activeMeetingsList)
       setStats({
         agents: agentsRes.data.length,
         meetings: meetingsRes.data.length,
-        activeMeetings
+        activeMeetings: activeMeetingsList.length
       })
     } catch (error) {
       console.error('Failed to load stats:', error)
     }
+  }
+
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now - date
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return '刚刚'
+    if (diffMins < 60) return `${diffMins} 分钟前`
+    if (diffHours < 24) return `${diffHours} 小时前`
+    if (diffDays < 7) return `${diffDays} 天前`
+    return date.toLocaleDateString('zh-CN')
   }
 
   return (
@@ -84,6 +107,52 @@ function Home() {
           </Card>
         </Col>
       </Row>
+
+      <Card title="进行中的会议" style={{ marginBottom: 24 }}>
+        {activeMeetings.length === 0 ? (
+          <Empty 
+            description="暂无进行中的会议" 
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          >
+            <Button type="primary" onClick={() => navigate('/meetings')}>
+              创建新会议
+            </Button>
+          </Empty>
+        ) : (
+          <List
+            dataSource={activeMeetings}
+            renderItem={(meeting) => (
+              <List.Item
+                onClick={() => navigate(`/meetings/${meeting.id}`)}
+                style={{ cursor: 'pointer', transition: 'background-color 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <List.Item.Meta
+                  title={
+                    <span style={{ fontSize: '16px', fontWeight: 500 }}>
+                      {meeting.topic}
+                    </span>
+                  }
+                  description={
+                    <Space size="middle" style={{ marginTop: 8 }}>
+                      <Tag color="blue">
+                        <TeamOutlined /> {meeting.participants.length} 个代理
+                      </Tag>
+                      <Tag color="green">
+                        <CommentOutlined /> {meeting.messages.length} 条消息
+                      </Tag>
+                      <span style={{ color: '#999' }}>
+                        最后更新: {formatTime(meeting.updated_at)}
+                      </span>
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
 
       <Card title="快速开始" style={{ marginBottom: 24 }}>
         <Row gutter={16}>

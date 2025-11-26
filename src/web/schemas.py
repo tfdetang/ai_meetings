@@ -98,6 +98,7 @@ class MeetingCreateRequest(BaseModel):
     agenda: Optional[List[AgendaItemRequest]] = None
     discussion_style: Optional[DiscussionStyle] = DiscussionStyle.FORMAL
     speaking_length_preferences: Optional[Dict[str, SpeakingLength]] = None
+    minutes_prompt: Optional[str] = None
 
 
 class ParticipantResponse(BaseModel):
@@ -229,6 +230,7 @@ class MeetingConfigUpdateRequest(BaseModel):
     speaking_order: Optional[SpeakingOrder] = None
     discussion_style: Optional[DiscussionStyle] = None
     speaking_length_preferences: Optional[Dict[str, SpeakingLength]] = None
+    minutes_prompt: Optional[str] = None
 
 
 class MinutesGenerateRequest(BaseModel):

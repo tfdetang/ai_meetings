@@ -74,6 +74,9 @@ function MeetingList() {
       if (values.max_message_length) {
         payload.max_message_length = parseInt(values.max_message_length)
       }
+      if (values.minutes_prompt) {
+        payload.minutes_prompt = values.minutes_prompt
+      }
 
       // Format agenda items
       if (values.agenda && values.agenda.length > 0) {
@@ -306,6 +309,17 @@ function MeetingList() {
             label="最大消息长度（可选）"
           >
             <Input type="number" placeholder="不限制长度" />
+          </Form.Item>
+
+          <Form.Item
+            name="minutes_prompt"
+            label="会议纪要生成提示词（可选）"
+            tooltip="自定义会议纪要的生成方式，留空则使用默认提示词"
+          >
+            <Input.TextArea 
+              rows={4} 
+              placeholder="例如：你是一名专业的会议纪要助理，请根据以下会议内容，生成清晰、准确、可执行的会议纪要。要求：结构化输出（会议背景、参会人员、讨论要点、决策事项、待办任务、风险与关注点）..."
+            />
           </Form.Item>
         </Form>
       </Modal>

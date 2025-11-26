@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag } from 'antd'
+import { Card, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Typography, Row, Col, Empty } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined } from '@ant-design/icons'
 import { agentsAPI, templatesAPI } from '../api/client'
 
 const { Option } = Select
+const { Text, Paragraph } = Typography
 
 function AgentList() {
   const [agents, setAgents] = useState([])
@@ -95,62 +96,6 @@ function AgentList() {
     }
   }
 
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '角色',
-      dataIndex: ['role', 'name'],
-      key: 'role',
-    },
-    {
-      title: '供应商',
-      dataIndex: 'provider',
-      key: 'provider',
-      render: (provider) => <Tag color="blue">{provider}</Tag>
-    },
-    {
-      title: '模型',
-      dataIndex: 'model',
-      key: 'model',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_, record) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<ApiOutlined />}
-            onClick={() => handleTest(record.id)}
-          >
-            测试
-          </Button>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定要删除这个代理吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
-
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
@@ -160,12 +105,98 @@ function AgentList() {
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={agents}
-        rowKey="id"
-        loading={loading}
-      />
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '50px' }}>
+          <Text>加载中...</Text>
+        </div>
+      ) : agents.length === 0 ? (
+        <Empty
+          description="还没有创建任何代理"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        >
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            创建第一个代理
+          </Button>
+        </Empty>
+      ) : (
+        <Row gutter={[16, 16]}>
+          {agents.map(agent => (
+            <Col xs={24} sm={24} md={12} lg={8} xl={6} key={agent.id}>
+              <Card
+                hoverable
+                actions={[
+                  <Button
+                    type="text"
+                    icon={<ApiOutlined />}
+                    onClick={() => handleTest(agent.id)}
+                  >
+                    测试
+                  </Button>,
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => handleEdit(agent)}
+                  >
+                    编辑
+                  </Button>,
+                  <Popconfirm
+                    title="确定要删除这个代理吗？"
+                    onConfirm={() => handleDelete(agent.id)}
+                    okText="确定"
+                    cancelText="取消"
+                  >
+                    <Button type="text" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                ]}
+              >
+                <Card.Meta
+                  title={
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Text strong style={{ fontSize: '18px' }}>
+                        {agent.name}
+                      </Text>
+                      <Tag color="blue">{agent.role.name}</Tag>
+                    </Space>
+                  }
+                  description={
+                    <Space direction="vertical" style={{ width: '100%', marginTop: 12 }} size={12}>
+                      {/* 角色描述 - 可展开/收起 */}
+                      {agent.role.description && (
+                        <div>
+                          <Text strong style={{ fontSize: '12px', color: '#666' }}>角色描述：</Text>
+                          <Paragraph
+                            ellipsis={{
+                              rows: 2,
+                              expandable: true,
+                              symbol: '展开'
+                            }}
+                            style={{ marginBottom: 0, marginTop: 4 }}
+                          >
+                            {agent.role.description}
+                          </Paragraph>
+                        </div>
+                      )}
+                      
+                      {/* 模型信息 */}
+                      <div>
+                        <Text strong style={{ fontSize: '12px', color: '#666' }}>模型：</Text>
+                        <div style={{ marginTop: 4 }}>
+                          <Space size={4}>
+                            <Tag color="green">{agent.provider}</Tag>
+                            <Tag>{agent.model}</Tag>
+                          </Space>
+                        </div>
+                      </div>
+                    </Space>
+                  }
+                />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      )}
 
       <Modal
         title={editingAgent ? '编辑代理' : '创建代理'}

@@ -240,7 +240,8 @@ async def create_meeting(request: MeetingCreateRequest):
             max_message_length=request.max_message_length,
             speaking_order=request.speaking_order,
             discussion_style=request.discussion_style if request.discussion_style else DiscussionStyle.FORMAL,
-            speaking_length_preferences=request.speaking_length_preferences
+            speaking_length_preferences=request.speaking_length_preferences,
+            minutes_prompt=request.minutes_prompt
         )
         meeting = await meeting_service.create_meeting(
             topic=request.topic,
@@ -412,7 +413,8 @@ async def update_meeting_config(meeting_id: str, request: MeetingConfigUpdateReq
             max_message_length=request.max_message_length if request.max_message_length is not None else meeting.config.max_message_length,
             speaking_order=request.speaking_order if request.speaking_order is not None else meeting.config.speaking_order,
             discussion_style=request.discussion_style if request.discussion_style is not None else meeting.config.discussion_style,
-            speaking_length_preferences=request.speaking_length_preferences if request.speaking_length_preferences is not None else meeting.config.speaking_length_preferences
+            speaking_length_preferences=request.speaking_length_preferences if request.speaking_length_preferences is not None else meeting.config.speaking_length_preferences,
+            minutes_prompt=request.minutes_prompt if request.minutes_prompt is not None else meeting.config.minutes_prompt
         )
         
         await meeting_service.update_meeting_config(meeting_id, config)

@@ -198,3 +198,76 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 3. WHEN AI 代理被 @ 提及 THEN Meeting System SHALL 优先安排该代理作为下一个发言者
 4. WHEN 用户被 @ 提及 THEN Meeting System SHALL 向用户发送通知或提示
 5. WHEN 显示消息 THEN Meeting System SHALL 高亮显示 @ 提及内容
+
+### 需求 16
+
+**用户故事:** 作为用户，我想要首页能够展示最近进行中的会议，以便快速了解当前活动并继续参与。
+
+#### 验收标准
+
+1. WHEN 用户访问首页 THEN Meeting System SHALL 显示最近的进行中会议列表（最多 5 个）
+2. WHEN 显示进行中会议 THEN Meeting System SHALL 包含会议主题、参与代理数量、消息数量和最后更新时间
+3. WHEN 用户点击进行中会议 THEN Meeting System SHALL 直接跳转到该会议室
+4. WHEN 没有进行中的会议 THEN Meeting System SHALL 显示友好的空状态提示
+5. WHEN 进行中会议列表更新 THEN Meeting System SHALL 按最后更新时间降序排列
+
+### 需求 17
+
+**用户故事:** 作为用户，我想要在代理列表页面看到更详细的代理信息，以便更好地了解每个代理的特点和配置。
+
+#### 验收标准
+
+1. WHEN 用户查看代理列表 THEN Meeting System SHALL 显示每个代理的角色描述
+2. WHEN 用户查看代理列表 THEN Meeting System SHALL 显示代理使用的模型供应商和模型名称
+3. WHEN 代理角色描述较长 THEN Meeting System SHALL 提供展开/收起功能
+4. WHEN 用户查看代理卡片 THEN Meeting System SHALL 使用视觉层次清晰展示代理名称、角色和模型信息
+5. WHEN 代理列表为空 THEN Meeting System SHALL 显示引导用户创建第一个代理的提示
+
+### 需求 18
+
+**用户故事:** 作为用户，我想要会议界面中的设置类元素可以折叠，以便节省屏幕空间并专注于会议内容。
+
+#### 验收标准
+
+1. WHEN 用户进入会议室 THEN Meeting System SHALL 将会议信息面板（参与者、配置等）默认折叠在顶部
+2. WHEN 用户点击会议信息面板标题 THEN Meeting System SHALL 展开或折叠面板内容
+3. WHEN 会议信息面板折叠 THEN Meeting System SHALL 在标题栏显示关键信息摘要（参与者数量、状态）
+4. WHEN 会议信息面板展开 THEN Meeting System SHALL 显示完整的参与者列表、配置和议题
+5. WHEN 用户刷新页面 THEN Meeting System SHALL 记住面板的折叠/展开状态
+
+### 需求 19
+
+**用户故事:** 作为用户，我想要会议纪要可以作为图标折叠摆放，以便在需要时快速访问而不占用主要空间。
+
+#### 验收标准
+
+1. WHEN 会议存在纪要 THEN Meeting System SHALL 在界面右上角或固定位置显示纪要图标
+2. WHEN 用户点击纪要图标 THEN Meeting System SHALL 以弹出面板或抽屉形式展示纪要内容
+3. WHEN 纪要面板打开 THEN Meeting System SHALL 显示纪要内容、版本信息和操作按钮
+4. WHEN 用户点击面板外部或关闭按钮 THEN Meeting System SHALL 关闭纪要面板
+5. WHEN 会议没有纪要 THEN Meeting System SHALL 显示生成纪要的快捷入口图标
+
+### 需求 20
+
+**用户故事:** 作为用户，我想要议题列表悬浮在侧边并可收起，以便在讨论时随时查看议题而不影响消息阅读。
+
+#### 验收标准
+
+1. WHEN 会议有议题 THEN Meeting System SHALL 在左侧或右侧显示可收起的议题侧边栏
+2. WHEN 用户点击收起按钮 THEN Meeting System SHALL 将议题侧边栏收起为图标或窄条
+3. WHEN 议题侧边栏收起 THEN Meeting System SHALL 显示当前未完成议题数量的徽章
+4. WHEN 用户点击展开按钮 THEN Meeting System SHALL 展开议题侧边栏显示完整列表
+5. WHEN 议题状态更新 THEN Meeting System SHALL 实时更新侧边栏中的议题显示
+6. WHEN 用户刷新页面 THEN Meeting System SHALL 记住侧边栏的展开/收起状态
+
+### 需求 21
+
+**用户故事:** 作为用户，我想要消息输入框占比更小并固定在底部，以便有更多空间查看会议消息历史。
+
+#### 验收标准
+
+1. WHEN 用户查看会议室 THEN Meeting System SHALL 将消息输入区域固定在页面底部
+2. WHEN 消息输入区域显示 THEN Meeting System SHALL 限制其高度占比不超过屏幕的 20%
+3. WHEN 用户滚动消息列表 THEN Meeting System SHALL 保持输入区域固定在底部不随滚动移动
+4. WHEN 输入框获得焦点 THEN Meeting System SHALL 保持紧凑布局不扩展额外空间
+5. WHEN 用户输入多行文本 THEN Meeting System SHALL 在输入框内部滚动而不扩展整体高度
