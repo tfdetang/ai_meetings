@@ -1,0 +1,186 @@
+/* Markdown 消息样式 */
+.markdown-message {
+  line-height: 1.6;
+  color: #333;
+}
+
+/* 标题样式 */
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4,
+.markdown-message h5,
+.markdown-message h6 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-message h1 {
+  font-size: 1.8em;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 8px;
+}
+
+.markdown-message h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 6px;
+}
+
+.markdown-message h3 {
+  font-size: 1.3em;
+}
+
+.markdown-message h4 {
+  font-size: 1.1em;
+}
+
+/* 段落样式 */
+.markdown-message p {
+  margin-bottom: 12px;
+}
+
+/* 链接样式 */
+.markdown-message a {
+  color: #1890ff;
+  text-decoration: none;
+  transition: color 0.3s;
+}
+
+.markdown-message a:hover {
+  color: #40a9ff;
+  text-decoration: underline;
+}
+
+/* 行内代码样式 */
+.markdown-message .inline-code {
+  background-color: #f5f5f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #d73a49;
+}
+
+/* 代码块样式 */
+.markdown-message .code-block {
+  background-color: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 16px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.markdown-message .code-block code {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+  color: #24292e;
+}
+
+/* 列表样式 */
+.markdown-message .markdown-list {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-message .markdown-list li {
+  margin: 4px 0;
+}
+
+.markdown-message .markdown-list ul,
+.markdown-message .markdown-list ol {
+  margin-top: 4px;
+}
+
+/* 引用样式 */
+.markdown-message .markdown-blockquote {
+  border-left: 4px solid #dfe2e5;
+  padding-left: 16px;
+  margin: 12px 0;
+  color: #6a737d;
+  font-style: italic;
+}
+
+/* 表格样式 */
+.markdown-message .markdown-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+
+.markdown-message .markdown-table th,
+.markdown-message .markdown-table td {
+  border: 1px solid #dfe2e5;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-message .markdown-table th {
+  background-color: #f6f8fa;
+  font-weight: 600;
+}
+
+.markdown-message .markdown-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+/* 水平线样式 */
+.markdown-message hr {
+  border: none;
+  border-top: 2px solid #eee;
+  margin: 16px 0;
+}
+
+/* 图片样式 */
+.markdown-message img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 任务列表样式 */
+.markdown-message input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+/* 删除线样式 */
+.markdown-message del {
+  color: #6a737d;
+}
+
+/* 强调样式 */
+.markdown-message strong {
+  font-weight: 600;
+  color: #24292e;
+}
+
+.markdown-message em {
+  font-style: italic;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .markdown-message {
+    font-size: 14px;
+  }
+  
+  .markdown-message h1 {
+    font-size: 1.5em;
+  }
+  
+  .markdown-message h2 {
+    font-size: 1.3em;
+  }
+  
+  .markdown-message .code-block {
+    padding: 12px;
+  }
+}

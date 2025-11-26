@@ -2,13 +2,14 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { 
   Card, Button, Input, Space, message, Tag, Badge, 
-  Spin, Empty, Popconfirm, Select, Divider 
+  Spin, Empty, Popconfirm, Select, Divider, Switch 
 } from 'antd'
 import { 
   SendOutlined, PlayCircleOutlined, PauseCircleOutlined, 
   StopOutlined, DownloadOutlined, ArrowLeftOutlined 
 } from '@ant-design/icons'
 import { meetingsAPI } from '../api/client'
+import MarkdownMessage from '../components/MarkdownMessage'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -21,8 +22,39 @@ function MeetingRoom() {
   const [sending, setSending] = useState(false)
   const [userMessage, setUserMessage] = useState('')
   const [selectedAgent, setSelectedAgent] = useState(null)
+  const [markdownEnabled, setMarkdownEnabled] = useState(true)
+  const [agentColors, setAgentColors] = useState({})
   const messagesEndRef = useRef(null)
   const wsRef = useRef(null)
+  
+  // 为代理分配颜色的调色板（柔和的颜色）
+  const colorPalette = [
+    { bg: '#e3f2fd', border: '#2196f3', tag: 'blue' },      // 蓝色
+    { bg: '#f3e5f5', border: '#9c27b0', tag: 'purple' },    // 紫色
+    { bg: '#e8f5e9', border: '#4caf50', tag: 'green' },     // 绿色
+    { bg: '#fff3e0', border: '#ff9800', tag: 'orange' },    // 橙色
+    { bg: '#fce4ec', border: '#e91e63', tag: 'magenta' },   // 品红
+    { bg: '#e0f2f1', border: '#009688', tag: 'cyan' },      // 青色
+    { bg: '#f1f8e9', border: '#8bc34a', tag: 'lime' },      // 青柠
+    { bg: '#fff9c4', border: '#fbc02d', tag: 'gold' },      // 金色
+    { bg: '#ede7f6', border: '#673ab7', tag: 'geekblue' },  // 极客蓝
+    { bg: '#fbe9e7', border: '#ff5722', tag: 'volcano' },   // 火山红
+  ]
+  
+  // 为代理分配颜色
+  const getAgentColor = (agentId) => {
+    if (!agentColors[agentId] && meeting) {
+      const newColors = { ...agentColors }
+      meeting.participants.forEach((participant, index) => {
+        if (!newColors[participant.id]) {
+          newColors[participant.id] = colorPalette[index % colorPalette.length]
+        }
+      })
+      setAgentColors(newColors)
+      return newColors[agentId] || colorPalette[0]
+    }
+    return agentColors[agentId] || colorPalette[0]
+  }
 
   useEffect(() => {
     loadMeeting()
@@ -388,16 +420,49 @@ function MeetingRoom() {
 
         <div>
           <strong>参与者：</strong>
-          <Space style={{ marginLeft: 8 }}>
-            {meeting.participants.map(p => (
-              <Tag key={p.id} color="blue">{p.name} ({p.role_name})</Tag>
-            ))}
+          <Space style={{ marginLeft: 8 }} wrap>
+            {meeting.participants.map(p => {
+              const color = getAgentColor(p.id)
+              return (
+                <Tag 
+                  key={p.id} 
+                  color={color?.tag}
+                  style={{ 
+                    borderLeft: `3px solid ${color?.border}`,
+                    paddingLeft: '8px',
+                    marginBottom: '4px'
+                  }}
+                >
+                  <span style={{ 
+                    display: 'inline-block',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    backgroundColor: color?.border,
+                    marginRight: '6px'
+                  }} />
+                  {p.name} ({p.role_name})
+                </Tag>
+              )
+            })}
           </Space>
         </div>
       </Card>
 
       <Card 
-        title={`会议消息 (${meeting.messages?.length || 0})`}
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>会议消息 ({meeting.messages?.length || 0})</span>
+            <Space>
+              <span style={{ fontSize: '14px', fontWeight: 'normal' }}>Markdown 渲染</span>
+              <Switch 
+                checked={markdownEnabled} 
+                onChange={setMarkdownEnabled}
+                size="small"
+              />
+            </Space>
+          </div>
+        }
         style={{ marginBottom: 16 }}
         bodyStyle={{ maxHeight: '500px', overflowY: 'auto' }}
       >
@@ -405,26 +470,36 @@ function MeetingRoom() {
           <Empty description="暂无消息" />
         ) : (
           <div>
-            {meeting.messages.map((msg, index) => (
-              <div key={msg.id || index} style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 4 }}>
-                  <Tag color={msg.speaker_type === 'user' ? 'green' : 'blue'}>
-                    {msg.speaker_name}
-                  </Tag>
-                  <span style={{ color: '#999', fontSize: '12px' }}>
-                    轮次 {msg.round_number} · {new Date(msg.timestamp).toLocaleString('zh-CN')}
-                  </span>
+            {meeting.messages.map((msg, index) => {
+              const isUser = msg.speaker_type === 'user'
+              const agentColor = isUser ? null : getAgentColor(msg.speaker_id)
+              
+              return (
+                <div key={msg.id || index} style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 4 }}>
+                    <Tag color={isUser ? 'green' : agentColor?.tag}>
+                      {msg.speaker_name}
+                    </Tag>
+                    <span style={{ color: '#999', fontSize: '12px' }}>
+                      轮次 {msg.round_number} · {new Date(msg.timestamp).toLocaleString('zh-CN')}
+                    </span>
+                  </div>
+                  <div style={{ 
+                    padding: '12px', 
+                    background: isUser ? '#f0f9ff' : agentColor?.bg || '#f5f5f5',
+                    borderLeft: isUser ? '4px solid #52c41a' : `4px solid ${agentColor?.border || '#999'}`,
+                    borderRadius: '4px',
+                    whiteSpace: markdownEnabled ? 'normal' : 'pre-wrap'
+                  }}>
+                    {markdownEnabled ? (
+                      <MarkdownMessage content={msg.content} />
+                    ) : (
+                      msg.content
+                    )}
+                  </div>
                 </div>
-                <div style={{ 
-                  padding: '12px', 
-                  background: msg.speaker_type === 'user' ? '#f0f9ff' : '#f5f5f5',
-                  borderRadius: '4px',
-                  whiteSpace: 'pre-wrap'
-                }}>
-                  {msg.content}
-                </div>
-              </div>
-            ))}
+              )
+            })}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -435,15 +510,24 @@ function MeetingRoom() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <div style={{ marginBottom: '8px' }}>
               <span style={{ color: '#666', fontSize: '12px' }}>快速 @: </span>
-              {meeting.participants.map(p => (
-                <Tag 
-                  key={p.id}
-                  style={{ cursor: 'pointer', marginBottom: '4px' }}
-                  onClick={() => setUserMessage(prev => prev + `@${p.name} `)}
-                >
-                  @{p.name}
-                </Tag>
-              ))}
+              {meeting.participants.map(p => {
+                const color = getAgentColor(p.id)
+                return (
+                  <Tag 
+                    key={p.id}
+                    color={color?.tag}
+                    style={{ 
+                      cursor: 'pointer', 
+                      marginBottom: '4px',
+                      borderLeft: `3px solid ${color?.border}`,
+                      paddingLeft: '8px'
+                    }}
+                    onClick={() => setUserMessage(prev => prev + `@${p.name} `)}
+                  >
+                    @{p.name}
+                  </Tag>
+                )
+              })}
             </div>
             <TextArea
               rows={4}

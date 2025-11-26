@@ -8,7 +8,17 @@
 
 ## 安装步骤
 
-### 1. 安装 Python 依赖
+### 方式一：一键安装（推荐）
+
+```bash
+./install_web.sh
+```
+
+这会自动安装所有后端和前端依赖。
+
+### 方式二：手动安装
+
+**1. 安装 Python 依赖**
 
 ```bash
 # 激活虚拟环境（如果还没有）
@@ -23,7 +33,7 @@ pip install -e .
 pip install -r requirements-web.txt
 ```
 
-### 2. 安装前端依赖
+**2. 安装前端依赖**
 
 ```bash
 cd web-frontend
@@ -31,7 +41,7 @@ npm install
 cd ..
 ```
 
-### 3. 测试 API（可选）
+**3. 测试 API（可选）**
 
 ```bash
 python test_web_api.py
@@ -123,6 +133,8 @@ npm run dev
 - **@ 单个代理**: `@Alice 这个方案可行吗？` → 只有 Alice 响应
 - **@ 多个代理**: `@Alice @Bob 你们觉得呢？` → Alice 和 Bob 都会响应
 - **快速 @**: 点击输入框上方的代理标签快速插入 @
+- **Markdown 格式**: AI 回复支持 Markdown 渲染，包括代码块、表格、图片等
+- **切换渲染**: 点击消息卡片右上角的开关可以切换 Markdown 渲染
 
 ## 常见问题
 

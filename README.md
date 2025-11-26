@@ -7,6 +7,8 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 - **多供应商支持**: 集成来自 OpenAI、Anthropic、Google 和 GLM（智谱AI）的 AI 代理
 - **基于角色的代理**: 使用模板或自定义提示词配置具有特定角色和行为的代理
 - **@ 提及功能**: 像社交媒体一样使用 `@代理名` 指定发言者，自然直观 🎯
+- **Markdown 渲染**: 支持完整的 Markdown 格式，包括代码块、表格、图片等 📝
+- **彩色识别**: 每个代理自动分配独特颜色，消息气泡和标签一目了然 🎨
 - **结构化会议**: 创建具有可配置发言顺序、轮次限制和消息长度约束的会议
 - **智能交互**: 支持 @ 提及、请求所有代理、运行一轮等多种互动方式
 - **会议管理**: 暂停、恢复和结束会议，具有完整的状态管理
@@ -16,16 +18,28 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 
 ## 安装
 
+### 快速安装（推荐）
+
 ```bash
 # 克隆仓库
 git clone <repository-url>
 cd ai-agent-meeting
 
-# 安装依赖
-pip install -e .
+# 一键安装所有依赖
+./install_web.sh
+```
 
-# 或安装开发依赖
-pip install -e ".[dev]"
+### 手动安装
+
+```bash
+# 安装后端依赖
+pip install -e .
+pip install -r requirements-web.txt
+
+# 安装前端依赖
+cd web-frontend
+npm install
+cd ..
 ```
 
 ## 快速开始
@@ -202,10 +216,13 @@ pytest tests/test_cli_integration.py -v
 
 - [快速开始指南](QUICK_START.md) - 新手入门必读 ⭐
 - [@ 提及功能指南](MENTION_FEATURE.md) - 智能 @ 提及使用说明 🎯
+- [Markdown 支持说明](MARKDOWN_SUPPORT.md) - 富文本消息渲染 📝
+- [颜色方案说明](COLOR_SCHEME.md) - 代理颜色识别系统 🎨
 - [使用示例](USAGE_EXAMPLES.md) - 实际使用场景和技巧 💡
 - [Web 界面使用指南](WEB_INTERFACE_GUIDE.md) - Web 界面详细使用说明
 - [故障排查指南](TROUBLESHOOTING.md) - 常见问题解决方案 🔧
 - [性能调优指南](PERFORMANCE_TUNING.md) - 超时配置和性能优化 ⚡
+- [更新日志](CHANGELOG.md) - 版本更新记录 📋
 - [CLI 使用指南](CLI_USAGE.md) - 详细的 CLI 命令参考
 - [角色模板](docs/role_templates.md) - 角色模板信息
 - [设计文档](.kiro/specs/ai-agent-meeting/design.md) - 系统设计和架构
