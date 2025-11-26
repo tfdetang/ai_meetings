@@ -6,45 +6,53 @@ Role templates provide preset role configurations for common agent types in the 
 
 The system includes the following preset role templates:
 
-1. **product_manager** - Product Manager
-   - Strategic focus on user needs, business value, and product vision
-   - Balances technical feasibility with market demands
+1. **product_manager** - 产品经理
+   - 资深产品经理，从业务目标、用户价值、需求拆解等角度提供专业意见
+   - 提供结构化观点和多个备选方案
 
-2. **software_engineer** - Software Engineer
-   - Pragmatic focus on technical implementation and code quality
-   - Values maintainability and scalability
+2. **art_director** - 美术总监
+   - 负责整体美术方向、风格统一性、资源计划和成本控制
+   - 清晰描述视觉风格并给出可执行的资源计划
 
-3. **ux_designer** - UX Designer
-   - User-centered focus on experience and interface design
-   - Advocates for intuitive and accessible design
+3. **tech_lead** - 技术负责人
+   - 从技术视角评估可行性、架构、性能和风险
+   - 提供多个技术方案和风险评估
 
-4. **qa_engineer** - QA Engineer
-   - Detail-oriented focus on testing and quality assurance
-   - Identifies potential issues and edge cases early
+4. **accountant** - 会计师
+   - 从财务角度分析成本结构、预算执行和合规性
+   - 说明财务影响和会计处理逻辑
 
-5. **data_analyst** - Data Analyst
-   - Analytical focus on metrics and data-driven insights
-   - Uses data to inform product and business decisions
+5. **auditor** - 审计师
+   - 从审计视角评估内部控制、流程风险和合规性
+   - 提供风险级别和整改建议
 
-6. **business_analyst** - Business Analyst
-   - Bridges technical and business stakeholders
-   - Focuses on requirements, processes, and business value
+6. **marketing_director** - 营销总监
+   - 负责市场分析、用户画像、渠道策略和品牌传播
+   - 基于数据提供营销动作和 KPI 测量方式
 
-7. **devops_engineer** - DevOps Engineer
-   - Infrastructure focus on deployment and reliability
-   - Concerned with monitoring and operational excellence
+7. **operations_manager** - 运营负责人
+   - 负责流程设计、用户生命周期、活动体系和成本效益
+   - 提供关键流程、指标和可执行方案
 
-8. **security_engineer** - Security Engineer
-   - Security focus on vulnerabilities and threat modeling
-   - Advocates for security best practices
+8. **sales_director** - 销售总监
+   - 负责销售管线、客户需求、定价策略和收入预测
+   - 分析销售机会和成交阻力
 
-9. **technical_writer** - Technical Writer
-   - Documentation focus on clear communication
-   - Makes complex technical concepts accessible
+9. **ux_designer** - UX 设计师
+   - 关注用户旅程、可用性、信息架构和可访问性
+   - 提供用户痛点分析和原型建议
 
-10. **project_manager** - Project Manager
-    - Organizational focus on timelines and resources
-    - Ensures projects are delivered successfully
+10. **data_scientist** - 数据科学家
+    - 从数据角度提供洞察、模型方法和假设验证
+    - 包含数据洞察、模型方案和验证方法
+
+11. **legal_advisor** - 法务顾问
+    - 从法律角度评估合同风险、知识产权、合规性和责任边界
+    - 提供法律风险级别和法务建议
+
+12. **general_employee** - 通用会议参与者
+    - 能够从多角度分析问题、拆解议题并提供结构化建议
+    - 适用于需要全面分析的通用会议场景
 
 ## Usage
 
