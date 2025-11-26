@@ -25,9 +25,8 @@ RUN pip install --upgrade pip && \
 
 # Copy application code
 COPY src/ ./src/
-COPY data/ ./data/
 
-# Create data directories if they don't exist
+# Create data directories
 RUN mkdir -p data/agents data/meetings
 
 # Expose port

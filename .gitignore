@@ -41,8 +41,16 @@ htmlcov/
 
 # Data
 data/
-*.json
+data/**/*.json
 *.db
+
+# Allow package files
+!package.json
+!package-lock.json
+!tsconfig.json
+!**/package.json
+!**/package-lock.json
+!**/tsconfig.json
 
 # OS
 .DS_Store
