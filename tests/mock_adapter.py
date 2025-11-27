@@ -37,6 +37,24 @@ class MockModelAdapter(IModelAdapter):
         # Return a response that includes context for verification
         return f"{self.response_template} (call {self.call_count})"
     
+    async def send_message_stream(
+        self,
+        messages: List[ConversationMessage],
+        system_prompt: str,
+        parameters: Optional[ModelParameters] = None
+    ):
+        """Send message and return mock streaming response"""
+        # Store the call parameters for verification
+        self.last_messages = messages
+        self.last_system_prompt = system_prompt
+        self.last_parameters = parameters
+        self.call_count += 1
+        
+        # Yield response in chunks
+        response = f"{self.response_template} (call {self.call_count})"
+        for char in response:
+            yield {"type": "content", "content": char}
+    
     async def test_connection(self) -> bool:
         """Test connection (always succeeds for mock)"""
         return True

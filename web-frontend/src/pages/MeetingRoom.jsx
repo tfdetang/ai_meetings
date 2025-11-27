@@ -10,7 +10,7 @@ import {
   StopOutlined, DownloadOutlined, ArrowLeftOutlined, PlusOutlined, 
   DeleteOutlined, CheckCircleOutlined, EditOutlined, HistoryOutlined,
   DownOutlined, UpOutlined, FileTextOutlined, MenuUnfoldOutlined, 
-  MenuFoldOutlined, UnorderedListOutlined 
+  MenuFoldOutlined, UnorderedListOutlined, BranchesOutlined 
 } from '@ant-design/icons'
 import { meetingsAPI } from '../api/client'
 import MarkdownMessage from '../components/MarkdownMessage'
@@ -60,6 +60,7 @@ function MeetingRoom() {
     const saved = localStorage.getItem('settingsSidebarCollapsed')
     return saved !== 'false' // 默认收起
   })
+  const [generateMindMapWithMinutes, setGenerateMindMapWithMinutes] = useState(false)
   const messagesEndRef = useRef(null)
   const wsRef = useRef(null)
   const textAreaRef = useRef(null)
@@ -729,8 +730,23 @@ function MeetingRoom() {
       await meetingsAPI.generateMinutes(meetingId, agentId)
       hideLoading()
       message.success('会议纪要已生成')
+      
+      // 如果选择了同时生成思维导图
+      if (generateMindMapWithMinutes) {
+        const hideMindMapLoading = message.loading('正在生成思维导图...', 0)
+        try {
+          await meetingsAPI.generateMindMap(meetingId, agentId)
+          hideMindMapLoading()
+          message.success('思维导图已生成')
+        } catch (mindMapError) {
+          hideMindMapLoading()
+          message.warning('思维导图生成失败: ' + (mindMapError.response?.data?.detail || mindMapError.message))
+        }
+      }
+      
       loadMeeting()
       setMinutesModalVisible(false)
+      setGenerateMindMapWithMinutes(false) // 重置选项
     } catch (error) {
       hideLoading()
       message.error('生成失败: ' + (error.response?.data?.detail || error.message))
@@ -1355,6 +1371,27 @@ function MeetingRoom() {
             <div style={{ marginBottom: '16px' }}>
               <h4 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>会议控制</h4>
               <Space direction="vertical" style={{ width: '100%' }} size="small">
+                {/* 思维导图入口 - 根据是否有思维导图显示不同状态 */}
+                {meeting.mind_map ? (
+                  <Button 
+                    icon={<BranchesOutlined />} 
+                    onClick={() => navigate(`/meetings/${meetingId}/mind-map`)}
+                    style={{ width: '100%' }}
+                    type="primary"
+                    ghost
+                  >
+                    查看思维导图
+                  </Button>
+                ) : (
+                  <Button 
+                    icon={<PlusOutlined />} 
+                    onClick={() => navigate(`/meetings/${meetingId}/mind-map`)}
+                    style={{ width: '100%' }}
+                    type="dashed"
+                  >
+                    生成思维导图
+                  </Button>
+                )}
                 <Button.Group style={{ width: '100%' }}>
                   <Button 
                     icon={<DownloadOutlined />} 
@@ -1546,6 +1583,27 @@ function MeetingRoom() {
         footer={null}
       >
         <Space direction="vertical" style={{ width: '100%' }}>
+          <div style={{ 
+            padding: '12px', 
+            background: '#f0f5ff', 
+            borderRadius: '4px',
+            marginBottom: '8px'
+          }}>
+            <Checkbox
+              checked={generateMindMapWithMinutes}
+              onChange={(e) => setGenerateMindMapWithMinutes(e.target.checked)}
+            >
+              同时生成思维导图
+            </Checkbox>
+            <div style={{ 
+              fontSize: '12px', 
+              color: '#666', 
+              marginTop: '4px',
+              marginLeft: '24px'
+            }}>
+              思维导图将基于会议内容和纪要关键决策生成
+            </div>
+          </div>
           <Button
             type="primary"
             block
@@ -1668,24 +1726,63 @@ function MeetingRoom() {
         />
       </Modal>
 
-      {/* 会议纪要浮动按钮 */}
-      <FloatButton
-        icon={meeting.current_minutes ? <FileTextOutlined /> : <PlusOutlined />}
-        tooltip={meeting.current_minutes ? '查看会议纪要' : '生成会议纪要'}
-        onClick={() => {
-          if (meeting.current_minutes) {
-            setMinutesDrawerVisible(true)
-          } else {
-            setMinutesModalVisible(true)
-          }
+      {/* 浮动按钮组 */}
+      <FloatButton.Group
+        trigger="hover"
+        type="primary"
+        style={{ 
+          position: 'fixed', 
+          left: '24px', 
+          right: 'auto',
+          insetInlineEnd: 'auto',
+          insetInlineStart: '24px'
         }}
-        badge={meeting.current_minutes ? { dot: true, color: 'green' } : null}
-        style={{ left: 24, top: 100 }}
-      />
+        icon={<FileTextOutlined />}
+        tooltip="会议工具"
+      >
+        {/* 会议纪要浮动按钮 */}
+        <FloatButton
+          icon={meeting.current_minutes ? <FileTextOutlined /> : <PlusOutlined />}
+          tooltip={meeting.current_minutes ? '查看会议纪要' : '生成会议纪要'}
+          onClick={() => {
+            if (meeting.current_minutes) {
+              setMinutesDrawerVisible(true)
+            } else {
+              setMinutesModalVisible(true)
+            }
+          }}
+          badge={meeting.current_minutes ? { dot: true, color: 'green' } : null}
+        />
+        {/* 思维导图浮动按钮 */}
+        <FloatButton
+          icon={meeting.mind_map ? <BranchesOutlined /> : <PlusOutlined />}
+          tooltip={meeting.mind_map ? '查看思维导图' : '生成思维导图'}
+          onClick={() => navigate(`/meetings/${meetingId}/mind-map`)}
+          badge={meeting.mind_map ? { dot: true, color: 'blue' } : null}
+        />
+      </FloatButton.Group>
 
       {/* 会议纪要抽屉 */}
       <Drawer
-        title="会议纪要"
+        title={
+          <Space>
+            <span>会议纪要</span>
+            {meeting.mind_map && (
+              <Button 
+                type="link" 
+                size="small"
+                icon={<BranchesOutlined />}
+                onClick={() => {
+                  setMinutesDrawerVisible(false)
+                  navigate(`/meetings/${meetingId}/mind-map`)
+                }}
+                style={{ padding: 0 }}
+              >
+                切换到思维导图
+              </Button>
+            )}
+          </Space>
+        }
         placement="right"
         width={600}
         open={minutesDrawerVisible}

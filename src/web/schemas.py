@@ -1,5 +1,7 @@
 """Pydantic schemas for API requests and responses"""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -7,7 +9,8 @@ from enum import Enum
 
 from ..models import (
     ModelProvider, SpeakingOrder, MeetingStatus, Agent, Meeting, Message,
-    DiscussionStyle, SpeakingLength, AgendaItem, MeetingMinutes, Mention
+    DiscussionStyle, SpeakingLength, AgendaItem, MeetingMinutes, Mention,
+    MindMap, MindMapNode
 )
 
 
@@ -240,3 +243,56 @@ class MinutesGenerateRequest(BaseModel):
 class MinutesUpdateRequest(BaseModel):
     content: str
     editor_id: str  # User or agent ID
+
+
+# Mind Map schemas
+class MindMapNodeResponse(BaseModel):
+    id: str
+    content: str
+    level: int
+    parent_id: Optional[str]
+    children_ids: List[str]
+    message_references: List[str]
+    metadata: Optional[Dict] = None
+    
+    @classmethod
+    def from_node(cls, node):
+        return cls(
+            id=node.id,
+            content=node.content,
+            level=node.level,
+            parent_id=node.parent_id,
+            children_ids=node.children_ids,
+            message_references=node.message_references,
+            metadata=node.metadata
+        )
+
+
+class MindMapResponse(BaseModel):
+    id: str
+    meeting_id: str
+    root_node: MindMapNodeResponse
+    nodes: Dict[str, MindMapNodeResponse]
+    created_at: datetime
+    created_by: str
+    version: int
+    
+    @classmethod
+    def from_mind_map(cls, mind_map):
+        return cls(
+            id=mind_map.id,
+            meeting_id=mind_map.meeting_id,
+            root_node=MindMapNodeResponse.from_node(mind_map.root_node),
+            nodes={k: MindMapNodeResponse.from_node(v) for k, v in mind_map.nodes.items()},
+            created_at=mind_map.created_at,
+            created_by=mind_map.created_by,
+            version=mind_map.version
+        )
+
+
+class MindMapGenerateRequest(BaseModel):
+    generator_id: Optional[str] = None  # Optional agent ID to use for generation
+
+
+class MindMapExportRequest(BaseModel):
+    format: str  # 'png', 'svg', 'json', 'markdown'

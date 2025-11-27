@@ -3,7 +3,8 @@
 from .agent import Agent, Role, ModelConfig, ModelParameters, ModelProvider
 from .meeting import (
     Meeting, MeetingConfig, MeetingStatus, SpeakingOrder, 
-    AgendaItem, MeetingMinutes, DiscussionStyle, SpeakingLength
+    AgendaItem, MeetingMinutes, DiscussionStyle, SpeakingLength,
+    MindMapNode, MindMap
 )
 from .message import Message, SpeakerType, ConversationMessage, Mention
 from .role_templates import (
@@ -28,6 +29,8 @@ __all__ = [
     'MeetingMinutes',
     'DiscussionStyle',
     'SpeakingLength',
+    'MindMapNode',
+    'MindMap',
     'Message',
     'SpeakerType',
     'ConversationMessage',

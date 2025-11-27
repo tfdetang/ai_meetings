@@ -24,7 +24,8 @@ from .schemas import (
     MeetingCreateRequest, MeetingResponse, MessageResponse,
     UserMessageRequest, TemplateResponse, AgendaItemRequest,
     AgendaItemResponse, MeetingConfigUpdateRequest,
-    MinutesGenerateRequest, MinutesUpdateRequest, MeetingMinutesResponse
+    MinutesGenerateRequest, MinutesUpdateRequest, MeetingMinutesResponse,
+    MindMapResponse, MindMapGenerateRequest, MindMapExportRequest
 )
 
 # Initialize services
@@ -683,6 +684,108 @@ async def export_json(meeting_id: str):
         return {"content": content}
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Meeting not found: {meeting_id}")
+
+
+# Mind Map endpoints
+@app.post("/api/meetings/{meeting_id}/mind-map", response_model=MindMapResponse)
+async def generate_mind_map(meeting_id: str, request: MindMapGenerateRequest = MindMapGenerateRequest()):
+    """Generate mind map for meeting"""
+    try:
+        mind_map = await meeting_service.generate_mind_map(meeting_id, request.generator_id)
+        return MindMapResponse.from_mind_map(mind_map)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Meeting not found: {meeting_id}")
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except APIError as e:
+        raise HTTPException(status_code=503, detail=f"AI 服务错误: {str(e)}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"生成思维导图失败: {str(e)}")
+
+
+@app.get("/api/meetings/{meeting_id}/mind-map", response_model=MindMapResponse)
+async def get_mind_map(meeting_id: str):
+    """Get mind map for meeting"""
+    try:
+        meeting = await meeting_service.get_meeting(meeting_id)
+        if meeting.mind_map is None:
+            raise HTTPException(status_code=404, detail="No mind map available for this meeting")
+        return MindMapResponse.from_mind_map(meeting.mind_map)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Meeting not found: {meeting_id}")
+
+
+@app.put("/api/meetings/{meeting_id}/mind-map", response_model=MindMapResponse)
+async def update_mind_map_endpoint(meeting_id: str, request: MindMapGenerateRequest = MindMapGenerateRequest()):
+    """Update/regenerate mind map for meeting"""
+    try:
+        # Regenerate mind map (this will increment version if one exists)
+        mind_map = await meeting_service.generate_mind_map(meeting_id, request.generator_id)
+        
+        return MindMapResponse.from_mind_map(mind_map)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Meeting not found: {meeting_id}")
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except APIError as e:
+        raise HTTPException(status_code=503, detail=f"AI 服务错误: {str(e)}")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"更新思维导图失败: {str(e)}")
+
+
+@app.post("/api/meetings/{meeting_id}/mind-map/export")
+async def export_mind_map(meeting_id: str, request: MindMapExportRequest):
+    """Export mind map in specified format"""
+    # Validate format
+    valid_formats = ['png', 'svg', 'json', 'markdown']
+    if request.format not in valid_formats:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}"
+        )
+    
+    try:
+        # Export mind map
+        file_data = await meeting_service.export_mind_map(meeting_id, request.format)
+        
+        # Set appropriate content type and filename
+        content_types = {
+            'png': 'image/png',
+            'svg': 'image/svg+xml',
+            'json': 'application/json',
+            'markdown': 'text/markdown'
+        }
+        
+        extensions = {
+            'png': 'png',
+            'svg': 'svg',
+            'json': 'json',
+            'markdown': 'md'
+        }
+        
+        content_type = content_types[request.format]
+        extension = extensions[request.format]
+        filename = f"mind_map_{meeting_id}.{extension}"
+        
+        return StreamingResponse(
+            iter([file_data]),
+            media_type=content_type,
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"'
+            }
+        )
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Meeting or mind map not found: {meeting_id}")
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"导出思维导图失败: {str(e)}")
 
 
 # WebSocket endpoint for real-time updates

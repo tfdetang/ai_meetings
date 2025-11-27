@@ -1235,3 +1235,339 @@ class MeetingService(IMeetingService):
         
         # Save meeting
         await self.storage.save_meeting(meeting)
+
+    async def generate_mind_map(self, meeting_id: str, generator_id: Optional[str] = None) -> 'MindMap':
+        """
+        Generate mind map from meeting content using AI model
+        
+        Args:
+            meeting_id: ID of meeting
+            generator_id: Optional ID of agent to use for generation (if None, uses first participant)
+            
+        Returns:
+            Generated MindMap instance
+            
+        Raises:
+            NotFoundError: If meeting or generator agent doesn't exist
+            ValidationError: If meeting has no messages to analyze
+        """
+        from ..models import MindMap, MindMapNode, ConversationMessage
+        from ..adapters.factory import ModelAdapterFactory
+        from .context_builder import build_mind_map_generation_prompt
+        import json
+        
+        # Load meeting
+        meeting = await self.get_meeting(meeting_id)
+        
+        # Validate meeting has messages
+        if not meeting.messages:
+            raise ValidationError("Cannot generate mind map for meeting with no messages", "messages")
+        
+        # Determine which agent to use for generation
+        if generator_id:
+            # Find the specified agent
+            generator_agent = None
+            for participant in meeting.participants:
+                if participant.id == generator_id:
+                    generator_agent = participant
+                    break
+            
+            if generator_agent is None:
+                raise NotFoundError(
+                    f"Agent {generator_id} is not a participant in meeting {meeting_id}",
+                    resource_type="agent",
+                    resource_id=generator_id
+                )
+        else:
+            # Use the first participant
+            generator_agent = meeting.participants[0]
+        
+        # Build prompt for mind map generation
+        mind_map_prompt = build_mind_map_generation_prompt(meeting)
+        
+        # Create model adapter
+        adapter = ModelAdapterFactory.create(generator_agent.model_config)
+        
+        # Get AI response
+        conversation_messages = [
+            ConversationMessage(
+                role='user',
+                content=mind_map_prompt
+            )
+        ]
+        
+        system_prompt = """你是一名专业的思维导图生成助理。请根据会议内容，提取关键主题和讨论点，生成清晰的层级结构。
+
+要求：
+- 准确识别会议的主要议题和讨论主题
+- 提取关键观点、决策和讨论点
+- 建立清晰的层级关系（主题 -> 子主题 -> 具体观点）
+- 为每个节点关联相关的消息ID
+- 输出严格的JSON格式，不包含任何其他文字"""
+        
+        response_content = await adapter.send_message(
+            messages=conversation_messages,
+            system_prompt=system_prompt,
+            parameters=generator_agent.model_config.parameters
+        )
+        
+        # Parse the JSON response
+        mind_map_data = self._parse_mind_map_response(response_content, meeting)
+        
+        # Determine version number (for future updates)
+        version = 1
+        if meeting.mind_map:
+            version = meeting.mind_map.version + 1
+        
+        # Create MindMap object
+        mind_map_id = str(uuid.uuid4())
+        mind_map = MindMap(
+            id=mind_map_id,
+            meeting_id=meeting_id,
+            root_node=mind_map_data['root_node'],
+            nodes=mind_map_data['nodes'],
+            created_at=datetime.now(),
+            created_by=generator_agent.id,
+            version=version
+        )
+        
+        # Set as current mind map
+        meeting.mind_map = mind_map
+        
+        # Update meeting
+        meeting.updated_at = datetime.now()
+        
+        # Save meeting
+        await self.storage.save_meeting(meeting)
+        
+        return mind_map
+
+    def _parse_mind_map_response(self, response: str, meeting: Meeting) -> dict:
+        """
+        Parse AI response to extract mind map structure
+        
+        Args:
+            response: AI model response (should be JSON)
+            meeting: Meeting instance (for fallback structure)
+            
+        Returns:
+            Dictionary with 'root_node' and 'nodes' keys
+        """
+        from ..models import MindMapNode
+        import json
+        import re
+        
+        # Try to extract JSON from response
+        # Sometimes AI models wrap JSON in markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            # Try to find JSON object directly
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                # Fallback: create basic structure
+                return self._create_fallback_mind_map(meeting)
+        
+        try:
+            data = json.loads(json_str)
+            
+            # Validate and parse nodes
+            if 'nodes' not in data or not isinstance(data['nodes'], list):
+                return self._create_fallback_mind_map(meeting)
+            
+            nodes_dict = {}
+            root_node = None
+            
+            for node_data in data['nodes']:
+                # Create MindMapNode from data
+                node = MindMapNode(
+                    id=node_data.get('id', str(uuid.uuid4())),
+                    content=node_data.get('content', ''),
+                    level=node_data.get('level', 0),
+                    parent_id=node_data.get('parent_id'),
+                    children_ids=node_data.get('children_ids', []),
+                    message_references=node_data.get('message_references', []),
+                    metadata=node_data.get('metadata', {})
+                )
+                
+                nodes_dict[node.id] = node
+                
+                # Identify root node (level 0)
+                if node.level == 0:
+                    root_node = node
+            
+            # If no root node found, create one
+            if root_node is None:
+                root_node = MindMapNode(
+                    id='root',
+                    content=meeting.topic,
+                    level=0,
+                    parent_id=None,
+                    children_ids=[n.id for n in nodes_dict.values() if n.level == 1],
+                    message_references=[]
+                )
+                nodes_dict['root'] = root_node
+            
+            return {
+                'root_node': root_node,
+                'nodes': nodes_dict
+            }
+            
+        except json.JSONDecodeError:
+            # Fallback: create basic structure
+            return self._create_fallback_mind_map(meeting)
+
+    def _create_fallback_mind_map(self, meeting: Meeting) -> dict:
+        """
+        Create a basic fallback mind map structure when AI generation fails
+        
+        Args:
+            meeting: Meeting instance
+            
+        Returns:
+            Dictionary with 'root_node' and 'nodes' keys
+        """
+        from ..models import MindMapNode
+        
+        nodes_dict = {}
+        
+        # Create root node with meeting topic
+        root_id = 'root'
+        children_ids = []
+        
+        # Create branch nodes for each agenda item
+        if meeting.agenda:
+            for i, item in enumerate(meeting.agenda):
+                node_id = f'agenda_{i}'
+                children_ids.append(node_id)
+                
+                # Find messages related to this agenda item (simple keyword matching)
+                related_messages = []
+                keywords = item.title.lower().split()
+                for msg in meeting.messages:
+                    if any(keyword in msg.content.lower() for keyword in keywords):
+                        related_messages.append(msg.id)
+                
+                node = MindMapNode(
+                    id=node_id,
+                    content=item.title,
+                    level=1,
+                    parent_id=root_id,
+                    children_ids=[],
+                    message_references=related_messages[:5]  # Limit to 5 references
+                )
+                nodes_dict[node_id] = node
+        else:
+            # If no agenda, create a single branch for "讨论内容"
+            node_id = 'discussion'
+            children_ids.append(node_id)
+            
+            node = MindMapNode(
+                id=node_id,
+                content='讨论内容',
+                level=1,
+                parent_id=root_id,
+                children_ids=[],
+                message_references=[msg.id for msg in meeting.messages[:10]]  # First 10 messages
+            )
+            nodes_dict[node_id] = node
+        
+        # Create root node
+        root_node = MindMapNode(
+            id=root_id,
+            content=meeting.topic,
+            level=0,
+            parent_id=None,
+            children_ids=children_ids,
+            message_references=[]
+        )
+        nodes_dict[root_id] = root_node
+        
+        return {
+            'root_node': root_node,
+            'nodes': nodes_dict
+        }
+
+    async def update_mind_map(self, meeting_id: str, mind_map: 'MindMap') -> 'MindMap':
+        """
+        Update mind map (regenerate with incremented version)
+        
+        Args:
+            meeting_id: ID of meeting
+            mind_map: New MindMap instance (typically regenerated)
+            
+        Returns:
+            Updated MindMap instance
+            
+        Raises:
+            NotFoundError: If meeting doesn't exist
+        """
+        # Load meeting
+        meeting = await self.get_meeting(meeting_id)
+        
+        # Set as current mind map
+        meeting.mind_map = mind_map
+        
+        # Update meeting
+        meeting.updated_at = datetime.now()
+        
+        # Save meeting
+        await self.storage.save_meeting(meeting)
+        
+        return mind_map
+
+    async def export_mind_map(self, meeting_id: str, format: str) -> bytes:
+        """
+        Export mind map to specified format
+        
+        Args:
+            meeting_id: ID of meeting
+            format: Export format ('png', 'svg', 'json', 'markdown')
+            
+        Returns:
+            Exported mind map as bytes
+            
+        Raises:
+            NotFoundError: If meeting doesn't exist or has no mind map
+            ValidationError: If format is not supported
+        """
+        from .mind_map_exporter import MindMapExporter
+        
+        # Load meeting
+        meeting = await self.get_meeting(meeting_id)
+        
+        # Validate mind map exists
+        if meeting.mind_map is None:
+            raise NotFoundError(
+                f"Meeting {meeting_id} has no mind map",
+                resource_type="mind_map",
+                resource_id=meeting_id
+            )
+        
+        # Validate format
+        supported_formats = ['png', 'svg', 'json', 'markdown']
+        if format not in supported_formats:
+            raise ValidationError(
+                f"Unsupported format: {format}. Supported formats: {', '.join(supported_formats)}",
+                "format"
+            )
+        
+        # Create exporter
+        exporter = MindMapExporter(meeting.mind_map)
+        
+        # Export based on format
+        if format == 'json':
+            return exporter.export_as_json()
+        elif format == 'markdown':
+            return exporter.export_as_markdown()
+        elif format == 'svg':
+            return exporter.export_as_svg()
+        elif format == 'png':
+            return exporter.export_as_png()
+        
+        return b''
+
+

@@ -141,6 +141,26 @@ class MeetingConfig:
     speaking_length_preferences: Dict[str, SpeakingLength] = None  # participant_id -> preference
 
 @dataclass
+class MindMapNode:
+    id: str
+    content: str
+    level: int  # 0 for root, 1 for first level branches, etc.
+    parent_id: Optional[str]
+    children_ids: List[str]
+    message_references: List[str]  # message IDs related to this node
+    metadata: Optional[Dict[str, Any]] = None
+
+@dataclass
+class MindMap:
+    id: str
+    meeting_id: str
+    root_node: MindMapNode
+    nodes: Dict[str, MindMapNode]  # node_id -> node
+    created_at: datetime
+    created_by: str  # user or agent_id
+    version: int
+
+@dataclass
 class Meeting:
     id: str
     topic: str
@@ -151,6 +171,7 @@ class Meeting:
     messages: List['Message']
     minutes_history: List[MeetingMinutes]
     current_minutes: Optional[MeetingMinutes]
+    mind_map: Optional[MindMap]
     config: MeetingConfig
     status: MeetingStatus
     created_at: datetime
@@ -288,6 +309,21 @@ class IMeetingService(ABC):
     @abstractmethod
     async def delete_meeting(self, meeting_id: str) -> None:
         """删除会议"""
+        pass
+    
+    @abstractmethod
+    async def generate_mind_map(self, meeting_id: str, generator_id: Optional[str] = None) -> MindMap:
+        """生成思维导图（可选指定生成者）"""
+        pass
+    
+    @abstractmethod
+    async def update_mind_map(self, meeting_id: str, mind_map: MindMap) -> MindMap:
+        """更新思维导图"""
+        pass
+    
+    @abstractmethod
+    async def export_mind_map(self, meeting_id: str, format: Literal['png', 'svg', 'json', 'markdown']) -> bytes:
+        """导出思维导图为指定格式"""
         pass
 ```
 
@@ -1039,6 +1075,28 @@ class AgendaError(Exception):
 10. **提及处理属性** (Properties 55):
     - 提及解析正确性
 
+11. **思维导图生成属性** (Properties 69, 70, 71, 72, 73):
+    - 思维导图生成功能
+    - 结构正确性（根节点为主题，议题为分支）
+    - 持久化往返
+    - 更新功能
+    - 访问入口存在性
+
+12. **思维导图交互属性** (Properties 74, 75, 76, 77, 78, 79):
+    - 渲染完整性
+    - 节点展开折叠
+    - 详细信息显示
+    - 消息引用跳转
+    - 视图变换状态
+    - 搜索功能
+
+13. **思维导图导出属性** (Properties 80, 81, 82, 83, 84):
+    - 多格式支持
+    - 图片导出有效性
+    - JSON 往返一致性
+    - Markdown 层级结构
+    - 导出结果可用性
+
 **生成器策略**:
 
 为属性测试创建智能生成器：
@@ -1581,4 +1639,521 @@ useEffect(() => {
 **属性 68: 输入框固定底部**
 *对于任何*消息列表滚动操作，输入区域应保持固定在底部不随滚动移动
 **验证需求: 21.3**
+
+## 思维导图功能设计
+
+### 1. 思维导图数据结构
+
+思维导图采用树形结构，每个节点包含内容、层级、父子关系和消息引用。
+
+#### 1.1 节点设计
+
+```python
+@dataclass
+class MindMapNode:
+    id: str  # 唯一标识符
+    content: str  # 节点内容文本
+    level: int  # 层级：0=根节点，1=一级分支，2=二级分支...
+    parent_id: Optional[str]  # 父节点ID，根节点为None
+    children_ids: List[str]  # 子节点ID列表
+    message_references: List[str]  # 相关消息ID列表
+    metadata: Optional[Dict[str, Any]] = None  # 扩展元数据
+```
+
+**设计决策**：
+- 使用扁平化的节点字典存储，通过 ID 引用建立关系，便于查找和更新
+- 每个节点记录相关消息引用，支持从思维导图跳转到具体讨论内容
+- metadata 字段预留扩展空间，可存储节点颜色、图标、标签等
+
+#### 1.2 思维导图结构
+
+```python
+@dataclass
+class MindMap:
+    id: str
+    meeting_id: str
+    root_node: MindMapNode  # 根节点（会议主题）
+    nodes: Dict[str, MindMapNode]  # 所有节点的字典 {node_id: node}
+    created_at: datetime
+    created_by: str  # 生成者ID（user 或 agent_id）
+    version: int  # 版本号，每次更新递增
+```
+
+### 2. 思维导图生成策略
+
+#### 2.1 生成流程
+
+```python
+async def generate_mind_map(meeting: Meeting, generator_id: Optional[str] = None) -> MindMap:
+    """
+    生成思维导图的核心流程：
+    1. 创建根节点（会议主题）
+    2. 为每个议题创建一级分支节点
+    3. 分析会议消息，提取关键讨论点
+    4. 使用 AI 模型组织讨论点为二级/三级分支
+    5. 建立节点与消息的引用关系
+    """
+    
+    # 1. 创建根节点
+    root_node = MindMapNode(
+        id=generate_id(),
+        content=meeting.topic,
+        level=0,
+        parent_id=None,
+        children_ids=[],
+        message_references=[]
+    )
+    
+    nodes = {root_node.id: root_node}
+    
+    # 2. 为议题创建一级分支
+    for agenda_item in meeting.agenda:
+        agenda_node = MindMapNode(
+            id=generate_id(),
+            content=agenda_item.title,
+            level=1,
+            parent_id=root_node.id,
+            children_ids=[],
+            message_references=[]
+        )
+        nodes[agenda_node.id] = agenda_node
+        root_node.children_ids.append(agenda_node.id)
+    
+    # 3. 使用 AI 分析会议内容，提取关键讨论点
+    discussion_points = await extract_discussion_points(meeting, generator_id)
+    
+    # 4. 将讨论点组织为思维导图节点
+    for point in discussion_points:
+        # 确定父节点（根据议题关联或内容相似度）
+        parent_node = find_best_parent_node(point, nodes)
+        
+        point_node = MindMapNode(
+            id=generate_id(),
+            content=point.content,
+            level=parent_node.level + 1,
+            parent_id=parent_node.id,
+            children_ids=[],
+            message_references=point.message_ids
+        )
+        nodes[point_node.id] = point_node
+        parent_node.children_ids.append(point_node.id)
+    
+    # 5. 创建思维导图对象
+    mind_map = MindMap(
+        id=generate_id(),
+        meeting_id=meeting.id,
+        root_node=root_node,
+        nodes=nodes,
+        created_at=datetime.now(),
+        created_by=generator_id or 'system',
+        version=1
+    )
+    
+    return mind_map
+```
+
+#### 2.2 AI 提示词设计
+
+生成思维导图时，向 AI 模型发送的提示词：
+
+```python
+def build_mind_map_generation_prompt(meeting: Meeting) -> str:
+    """构建思维导图生成的 AI 提示词"""
+    
+    prompt = f"""
+请分析以下会议内容，提取关键讨论点并组织为思维导图结构。
+
+会议主题：{meeting.topic}
+
+会议议题：
+{format_agenda_items(meeting.agenda)}
+
+会议讨论内容：
+{format_messages_for_analysis(meeting.messages, meeting.current_minutes)}
+
+请按以下格式输出思维导图节点：
+
+1. 识别每个议题下的主要讨论点（2-5个）
+2. 为每个讨论点提取支持性观点或细节（1-3个）
+3. 标注每个节点关联的消息ID
+
+输出格式（JSON）：
+{{
+  "discussion_points": [
+    {{
+      "content": "讨论点内容",
+      "parent_agenda": "关联的议题标题",
+      "message_ids": ["msg_id_1", "msg_id_2"],
+      "sub_points": [
+        {{
+          "content": "子观点内容",
+          "message_ids": ["msg_id_3"]
+        }}
+      ]
+    }}
+  ]
+}}
+
+要求：
+- 内容简洁，每个节点不超过20个字
+- 保持逻辑层次清晰
+- 确保消息ID引用准确
+"""
+    return prompt
+```
+
+### 3. 思维导图可视化设计
+
+#### 3.1 前端渲染方案
+
+使用 **React Flow** 或 **D3.js** 实现可互动的思维导图可视化。
+
+**推荐方案：React Flow**
+- 优点：React 生态集成好，提供开箱即用的拖拽、缩放、连接线等功能
+- 适合快速开发和维护
+
+**布局算法**：
+- 使用树形布局（Tree Layout）
+- 根节点居中，子节点按层级向外辐射
+- 自动计算节点位置，避免重叠
+
+#### 3.2 交互功能实现
+
+```typescript
+// 思维导图组件状态
+interface MindMapState {
+  nodes: Node[]  // React Flow 节点
+  edges: Edge[]  // React Flow 连接线
+  expandedNodes: Set<string>  // 展开的节点ID集合
+  selectedNode: string | null  // 当前选中的节点
+  viewTransform: { x: number, y: number, zoom: number }  // 视图变换
+}
+
+// 节点点击处理：展开/折叠
+const handleNodeClick = (nodeId: string) => {
+  setExpandedNodes(prev => {
+    const newSet = new Set(prev)
+    if (newSet.has(nodeId)) {
+      newSet.delete(nodeId)  // 折叠
+    } else {
+      newSet.add(nodeId)  // 展开
+    }
+    return newSet
+  })
+  
+  // 重新计算可见节点和连接线
+  updateVisibleElements()
+}
+
+// 节点悬停处理：显示详细信息
+const handleNodeHover = (nodeId: string) => {
+  const node = mindMap.nodes[nodeId]
+  setTooltip({
+    visible: true,
+    content: node.content,
+    messageRefs: node.message_references,
+    position: getNodePosition(nodeId)
+  })
+}
+
+// 消息引用点击：跳转到会议记录
+const handleMessageRefClick = (messageId: string) => {
+  // 滚动到对应消息
+  scrollToMessage(messageId)
+  // 高亮显示消息
+  highlightMessage(messageId)
+}
+
+// 搜索功能
+const handleSearch = (keyword: string) => {
+  const matchedNodes = Object.values(mindMap.nodes).filter(node =>
+    node.content.toLowerCase().includes(keyword.toLowerCase())
+  )
+  
+  // 高亮匹配的节点
+  setHighlightedNodes(matchedNodes.map(n => n.id))
+  
+  // 展开匹配节点的路径
+  matchedNodes.forEach(node => {
+    expandPathToNode(node.id)
+  })
+}
+```
+
+#### 3.3 UI 组件设计
+
+```jsx
+<div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+  {/* 工具栏 */}
+  <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
+    <Space>
+      <Input.Search
+        placeholder="搜索节点内容..."
+        onSearch={handleSearch}
+        style={{ width: 300 }}
+      />
+      <Button icon={<ZoomInOutlined />} onClick={handleZoomIn}>
+        放大
+      </Button>
+      <Button icon={<ZoomOutOutlined />} onClick={handleZoomOut}>
+        缩小
+      </Button>
+      <Button icon={<ExpandOutlined />} onClick={handleExpandAll}>
+        全部展开
+      </Button>
+      <Button icon={<CompressOutlined />} onClick={handleCollapseAll}>
+        全部折叠
+      </Button>
+      <Dropdown menu={{ items: exportMenuItems }}>
+        <Button icon={<DownloadOutlined />}>
+          导出
+        </Button>
+      </Dropdown>
+    </Space>
+  </div>
+  
+  {/* 思维导图画布 */}
+  <div style={{ flex: 1 }}>
+    <ReactFlow
+      nodes={visibleNodes}
+      edges={visibleEdges}
+      onNodeClick={(event, node) => handleNodeClick(node.id)}
+      onNodeMouseEnter={(event, node) => handleNodeHover(node.id)}
+      onNodeMouseLeave={() => setTooltip({ visible: false })}
+      fitView
+      attributionPosition="bottom-left"
+    >
+      <Background />
+      <Controls />
+      <MiniMap />
+    </ReactFlow>
+  </div>
+  
+  {/* 节点详情提示框 */}
+  {tooltip.visible && (
+    <div style={{
+      position: 'absolute',
+      ...tooltip.position,
+      background: 'white',
+      border: '1px solid #d9d9d9',
+      borderRadius: '4px',
+      padding: '12px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+      maxWidth: '300px',
+      zIndex: 1000
+    }}>
+      <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>
+        {tooltip.content}
+      </div>
+      {tooltip.messageRefs.length > 0 && (
+        <div>
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+            相关消息：
+          </div>
+          {tooltip.messageRefs.map(msgId => (
+            <Tag
+              key={msgId}
+              style={{ cursor: 'pointer' }}
+              onClick={() => handleMessageRefClick(msgId)}
+            >
+              跳转到消息
+            </Tag>
+          ))}
+        </div>
+      )}
+    </div>
+  )}
+</div>
+```
+
+### 4. 思维导图导出实现
+
+#### 4.1 导出格式处理
+
+```python
+class MindMapExporter:
+    """思维导图导出器"""
+    
+    async def export_as_json(self, mind_map: MindMap) -> bytes:
+        """导出为 JSON 格式"""
+        data = {
+            'id': mind_map.id,
+            'meeting_id': mind_map.meeting_id,
+            'version': mind_map.version,
+            'created_at': mind_map.created_at.isoformat(),
+            'root_node': asdict(mind_map.root_node),
+            'nodes': {nid: asdict(node) for nid, node in mind_map.nodes.items()}
+        }
+        return json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+    
+    async def export_as_markdown(self, mind_map: MindMap) -> bytes:
+        """导出为 Markdown 格式"""
+        lines = [f"# {mind_map.root_node.content}\n"]
+        
+        def traverse_node(node: MindMapNode, indent_level: int):
+            """递归遍历节点生成 Markdown"""
+            if node.level > 0:  # 跳过根节点
+                indent = "  " * (indent_level - 1)
+                lines.append(f"{indent}- {node.content}")
+                
+                # 添加消息引用
+                if node.message_references:
+                    lines.append(f"{indent}  *相关消息: {', '.join(node.message_references)}*")
+            
+            # 递归处理子节点
+            for child_id in node.children_ids:
+                child_node = mind_map.nodes[child_id]
+                traverse_node(child_node, indent_level + 1)
+        
+        traverse_node(mind_map.root_node, 0)
+        return "\n".join(lines).encode('utf-8')
+    
+    async def export_as_svg(self, mind_map: MindMap) -> bytes:
+        """导出为 SVG 格式"""
+        # 使用图形库（如 graphviz 或 matplotlib）生成 SVG
+        # 这里需要计算节点位置和连接线
+        svg_content = self._generate_svg_from_mind_map(mind_map)
+        return svg_content.encode('utf-8')
+    
+    async def export_as_png(self, mind_map: MindMap) -> bytes:
+        """导出为 PNG 格式"""
+        # 先生成 SVG，然后转换为 PNG
+        svg_bytes = await self.export_as_svg(mind_map)
+        png_bytes = self._convert_svg_to_png(svg_bytes)
+        return png_bytes
+```
+
+#### 4.2 前端导出触发
+
+```typescript
+const handleExport = async (format: 'png' | 'svg' | 'json' | 'markdown') => {
+  try {
+    setExporting(true)
+    
+    // 调用后端 API
+    const response = await fetch(`/api/meetings/${meetingId}/mind-map/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format })
+    })
+    
+    if (!response.ok) throw new Error('导出失败')
+    
+    // 获取文件数据
+    const blob = await response.blob()
+    
+    // 触发下载
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `mind-map-${meetingId}.${format}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+    
+    message.success('导出成功')
+  } catch (error) {
+    message.error('导出失败：' + error.message)
+  } finally {
+    setExporting(false)
+  }
+}
+```
+
+### 5. 思维导图与会议纪要的集成
+
+思维导图和会议纪要是互补的两种会议总结方式：
+
+- **会议纪要**：线性文本，详细记录决策和待办事项，适合阅读和归档
+- **思维导图**：图形化结构，展示讨论层次和关联，适合快速理解和回顾
+
+**集成策略**：
+1. 生成会议纪要时，可同时生成思维导图
+2. 思维导图的节点可以引用纪要中的关键决策
+3. 在 UI 中提供纪要和思维导图的切换视图
+
+```python
+async def generate_meeting_summary(meeting_id: str) -> Tuple[MeetingMinutes, MindMap]:
+    """同时生成会议纪要和思维导图"""
+    meeting = await get_meeting(meeting_id)
+    
+    # 并行生成
+    minutes_task = generate_minutes(meeting)
+    mind_map_task = generate_mind_map(meeting)
+    
+    minutes, mind_map = await asyncio.gather(minutes_task, mind_map_task)
+    
+    return minutes, mind_map
+```
+
+### 思维导图生成属性
+
+**属性 69: 思维导图生成功能**
+*对于任何*会议，触发思维导图生成后应创建一个包含非空节点数据的思维导图对象
+**验证需求: 22.1**
+
+**属性 70: 思维导图结构正确性**
+*对于任何*生成的思维导图，中心节点的内容应为会议主题，且会议议题应出现在分支节点中
+**验证需求: 22.2**
+
+**属性 71: 思维导图持久化**
+*对于任何*生成的思维导图，重新加载会议后应包含该思维导图数据
+**验证需求: 22.3**
+
+**属性 72: 思维导图更新功能**
+*对于任何*已有思维导图的会议，添加新消息后重新生成思维导图应更新思维导图版本
+**验证需求: 22.4**
+
+**属性 73: 思维导图访问入口**
+*对于任何*包含思维导图数据的会议，会议对象的 mind_map 字段应非空
+**验证需求: 22.5**
+
+### 思维导图交互属性
+
+**属性 74: 思维导图渲染完整性**
+*对于任何*思维导图数据，渲染函数应返回包含所有节点和连接关系的渲染结构
+**验证需求: 23.1**
+
+**属性 75: 节点展开折叠状态切换**
+*对于任何*思维导图节点，点击操作应正确切换该节点的展开/折叠状态
+**验证需求: 23.2**
+
+**属性 76: 节点详细信息显示**
+*对于任何*思维导图节点，悬停事件应返回该节点的详细信息和消息引用列表
+**验证需求: 23.3**
+
+**属性 77: 消息引用跳转**
+*对于任何*节点中的消息引用，点击应返回正确的消息ID用于导航
+**验证需求: 23.4**
+
+**属性 78: 视图变换状态管理**
+*对于任何*拖拽或缩放操作，视图变换状态应正确更新并反映在渲染中
+**验证需求: 23.5**
+
+**属性 79: 思维导图搜索功能**
+*对于任何*包含多个节点的思维导图和搜索关键词，搜索应返回所有内容匹配的节点
+**验证需求: 23.6**
+
+### 思维导图导出属性
+
+**属性 80: 导出格式支持**
+*对于任何*思维导图导出请求，系统应支持 PNG、SVG、JSON 和 Markdown 四种格式
+**验证需求: 24.1**
+
+**属性 81: 图片格式导出有效性**
+*对于任何*思维导图，导出为 PNG 或 SVG 格式应返回有效的图片数据
+**验证需求: 24.2**
+
+**属性 82: JSON 导出往返一致性**
+*对于任何*思维导图，导出为 JSON 后解析应得到包含所有节点和关系的等价结构
+**验证需求: 24.3**
+
+**属性 83: Markdown 导出层级结构**
+*对于任何*思维导图，导出为 Markdown 应包含正确的层级结构（使用标题或列表缩进）
+**验证需求: 24.4**
+
+**属性 84: 导出结果可用性**
+*对于任何*思维导图导出操作，应返回文件数据或下载 URL
+**验证需求: 24.5**
 

@@ -18,6 +18,9 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 - **Discussion Style（讨论风格）**: 定义会议氛围和交流方式的配置（如正式、轻松、辩论式）
 - **Speaking Length Preference（发言长度偏好）**: 参与者发言详细程度的期望设置（简短、中等、详细）
 - **Mention（提及）**: 使用 @ 符号引用特定参会者以请求其发言或回应的功能
+- **Mind Map（思维导图）**: 以图形化方式展示会议讨论结构的可视化工具，包含中心主题和分支节点
+- **Mind Map Node（思维导图节点）**: 思维导图中的单个元素，代表一个主题、观点或讨论点
+- **Interactive Visualization（可互动可视化）**: 允许用户通过点击、拖拽、缩放等操作与图形化内容进行交互的界面
 
 ## 需求
 
@@ -271,3 +274,40 @@ AI 代理会议系统是一个允许用户配置多个 AI 代理（来自不同�
 3. WHEN 用户滚动消息列表 THEN Meeting System SHALL 保持输入区域固定在底部不随滚动移动
 4. WHEN 输入框获得焦点 THEN Meeting System SHALL 保持紧凑布局不扩展额外空间
 5. WHEN 用户输入多行文本 THEN Meeting System SHALL 在输入框内部滚动而不扩展整体高度
+
+### 需求 22
+
+**用户故事:** 作为用户，我想要系统能够从会议内容生成思维导图，以便可视化地理解讨论的结构和关键观点。
+
+#### 验收标准
+
+1. WHEN 用户请求生成思维导图 THEN Meeting System SHALL 分析会议消息和纪要并提取关键主题和观点
+2. WHEN 生成思维导图 THEN Meeting System SHALL 将会议主题作为中心节点，将议题和关键讨论点作为分支节点
+3. WHEN 思维导图生成完成 THEN Meeting System SHALL 将思维导图数据保存到会议记录中
+4. WHEN 会议内容更新 THEN Meeting System SHALL 允许用户重新生成或更新思维导图
+5. WHEN 思维导图数据存在 THEN Meeting System SHALL 在会议详情中提供访问思维导图的入口
+
+### 需求 23
+
+**用户故事:** 作为用户，我想要以可互动的方式浏览思维导图，以便探索会议讨论的层次结构和关联关系。
+
+#### 验收标准
+
+1. WHEN 用户打开思维导图视图 THEN Meeting System SHALL 以图形化方式渲染思维导图的节点和连接
+2. WHEN 用户点击思维导图节点 THEN Meeting System SHALL 展开或折叠该节点的子节点
+3. WHEN 用户悬停在节点上 THEN Meeting System SHALL 显示该节点的详细信息和相关消息引用
+4. WHEN 用户点击节点中的消息引用 THEN Meeting System SHALL 跳转到会议记录中的对应消息
+5. WHEN 用户拖拽思维导图 THEN Meeting System SHALL 允许用户平移和缩放视图以查看不同区域
+6. WHEN 思维导图节点较多 THEN Meeting System SHALL 提供搜索和过滤功能以快速定位特定内容
+
+### 需求 24
+
+**用户故事:** 作为用户，我想要导出思维导图，以便在其他工具中使用或分享给团队成员。
+
+#### 验收标准
+
+1. WHEN 用户请求导出思维导图 THEN Meeting System SHALL 提供多种导出格式选项（PNG、SVG、JSON、Markdown）
+2. WHEN 用户选择图片格式导出 THEN Meeting System SHALL 生成包含完整思维导图的高质量图片文件
+3. WHEN 用户选择 JSON 格式导出 THEN Meeting System SHALL 导出包含所有节点和关系的结构化数据
+4. WHEN 用户选择 Markdown 格式导出 THEN Meeting System SHALL 将思维导图转换为层级化的 Markdown 文本
+5. WHEN 导出完成 THEN Meeting System SHALL 提供下载链接或直接触发文件下载

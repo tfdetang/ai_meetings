@@ -4,6 +4,7 @@ import { TeamOutlined, CommentOutlined, HomeOutlined } from '@ant-design/icons'
 import AgentList from './pages/AgentList'
 import MeetingList from './pages/MeetingList'
 import MeetingRoom from './pages/MeetingRoom'
+import MindMapView from './pages/MindMapView'
 import Home from './pages/Home'
 
 const { Header, Content } = Layout
@@ -37,6 +38,7 @@ function App() {
           <Route path="/agents" element={<AgentList />} />
           <Route path="/meetings" element={<MeetingList />} />
           <Route path="/meetings/:meetingId" element={<MeetingRoom />} />
+          <Route path="/meetings/:meetingId/mind-map" element={<MindMapView />} />
         </Routes>
       </Content>
     </Layout>

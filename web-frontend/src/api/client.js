@@ -70,6 +70,13 @@ export const meetingsAPI = {
   getMinutesHistory: (id) => client.get(`/meetings/${id}/minutes/history`),
   // Configuration
   updateConfig: (id, config) => client.patch(`/meetings/${id}/config`, config),
+  // Mind map
+  generateMindMap: (id, generatorId = null) => client.post(`/meetings/${id}/mind-map`, generatorId ? { generator_id: generatorId } : {}),
+  getMindMap: (id) => client.get(`/meetings/${id}/mind-map`),
+  exportMindMap: (id, format) => client.post(`/meetings/${id}/mind-map/export`, null, { 
+    params: { format },
+    responseType: 'blob'
+  }),
 }
 
 export default client

@@ -104,6 +104,89 @@ class MeetingMinutes:
 
 
 @dataclass
+class MindMapNode:
+    """Node in a mind map"""
+    id: str
+    content: str
+    level: int  # 0 for root, 1 for first level branches, etc.
+    parent_id: Optional[str]
+    children_ids: List[str]
+    message_references: List[str]  # message IDs related to this node
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        """Set defaults"""
+        if self.metadata is None:
+            self.metadata = {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'content': self.content,
+            'level': self.level,
+            'parent_id': self.parent_id,
+            'children_ids': self.children_ids,
+            'message_references': self.message_references,
+            'metadata': self.metadata
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MindMapNode':
+        """Create from dictionary"""
+        return cls(
+            id=data['id'],
+            content=data['content'],
+            level=data['level'],
+            parent_id=data.get('parent_id'),
+            children_ids=data.get('children_ids', []),
+            message_references=data.get('message_references', []),
+            metadata=data.get('metadata', {})
+        )
+
+
+@dataclass
+class MindMap:
+    """Mind map representation of meeting discussion"""
+    id: str
+    meeting_id: str
+    root_node: MindMapNode
+    nodes: Dict[str, MindMapNode]  # node_id -> node
+    created_at: datetime
+    created_by: str  # user or agent_id
+    version: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'meeting_id': self.meeting_id,
+            'root_node': self.root_node.to_dict(),
+            'nodes': {k: v.to_dict() for k, v in self.nodes.items()},
+            'created_at': self.created_at.isoformat(),
+            'created_by': self.created_by,
+            'version': self.version
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MindMap':
+        """Create from dictionary"""
+        data_copy = data.copy()
+        if isinstance(data_copy['created_at'], str):
+            data_copy['created_at'] = datetime.fromisoformat(data_copy['created_at'])
+        
+        return cls(
+            id=data_copy['id'],
+            meeting_id=data_copy['meeting_id'],
+            root_node=MindMapNode.from_dict(data_copy['root_node']),
+            nodes={k: MindMapNode.from_dict(v) for k, v in data_copy['nodes'].items()},
+            created_at=data_copy['created_at'],
+            created_by=data_copy['created_by'],
+            version=data_copy['version']
+        )
+
+
+@dataclass
 class MeetingConfig:
     """Configuration for a meeting"""
     max_rounds: Optional[int] = None
@@ -163,6 +246,7 @@ class Meeting:
     agenda: Optional[List[AgendaItem]] = None
     minutes_history: Optional[List[MeetingMinutes]] = None
     current_minutes: Optional[MeetingMinutes] = None
+    mind_map: Optional[MindMap] = None
 
     def __post_init__(self):
         """Validate meeting fields and set defaults"""
@@ -202,6 +286,7 @@ class Meeting:
             'agenda': [item.to_dict() for item in self.agenda] if self.agenda else [],
             'minutes_history': [m.to_dict() for m in self.minutes_history] if self.minutes_history else [],
             'current_minutes': self.current_minutes.to_dict() if self.current_minutes else None,
+            'mind_map': self.mind_map.to_dict() if self.mind_map else None,
         }
 
     @classmethod
@@ -222,6 +307,7 @@ class Meeting:
             agenda=[AgendaItem.from_dict(item) for item in data.get('agenda', [])],
             minutes_history=[MeetingMinutes.from_dict(m) for m in data.get('minutes_history', [])],
             current_minutes=MeetingMinutes.from_dict(data['current_minutes']) if data.get('current_minutes') else None,
+            mind_map=MindMap.from_dict(data['mind_map']) if data.get('mind_map') else None,
         )
 
     def export_to_markdown(self) -> str:

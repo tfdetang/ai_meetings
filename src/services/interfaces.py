@@ -11,6 +11,7 @@ from ..models import (
     ModelParameters,
     AgendaItem,
     MeetingMinutes,
+    MindMap,
 )
 
 
@@ -166,6 +167,21 @@ class IMeetingService(ABC):
     @abstractmethod
     async def update_minutes(self, meeting_id: str, content: str, editor_id: str) -> 'MeetingMinutes':
         """Update meeting minutes manually (creates new version)"""
+        pass
+
+    @abstractmethod
+    async def generate_mind_map(self, meeting_id: str, generator_id: Optional[str] = None) -> 'MindMap':
+        """Generate mind map from meeting content (可选指定生成者)"""
+        pass
+
+    @abstractmethod
+    async def update_mind_map(self, meeting_id: str, mind_map: 'MindMap') -> 'MindMap':
+        """Update mind map"""
+        pass
+
+    @abstractmethod
+    async def export_mind_map(self, meeting_id: str, format: str) -> bytes:
+        """Export mind map to specified format (png, svg, json, markdown)"""
         pass
 
 

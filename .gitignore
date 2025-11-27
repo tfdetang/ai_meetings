@@ -20,17 +20,18 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# Virtual Environment
+.venv/
 venv/
-env/
 ENV/
-.venv
+env/
 
 # Testing
 .pytest_cache/
+.hypothesis/
 .coverage
 htmlcov/
-.hypothesis/
+*.cover
 
 # IDE
 .vscode/
@@ -39,19 +40,27 @@ htmlcov/
 *.swo
 *~
 
-# Data
-data/
-data/**/*.json
-*.db
-
-# Allow package files
-!package.json
-!package-lock.json
-!tsconfig.json
-!**/package.json
-!**/package-lock.json
-!**/tsconfig.json
-
 # OS
 .DS_Store
 Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build
+dist/
+build/
+
+# Data (optional - uncomment if you don't want to track data)
+# data/agents/
+# data/meetings/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+.env.local

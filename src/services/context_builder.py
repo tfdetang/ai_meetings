@@ -223,3 +223,84 @@ def get_next_speaker(meeting: Meeting, last_message: Message) -> str:
     # No mentions or no AI agents mentioned - use default speaking order
     # This will be handled by the meeting service's existing logic
     return None
+
+
+def build_mind_map_generation_prompt(meeting: Meeting) -> str:
+    """
+    Build prompt for generating mind map from meeting content
+    
+    Args:
+        meeting: Meeting instance
+        
+    Returns:
+        Prompt string for AI model to generate mind map structure
+    """
+    lines = []
+    
+    lines.append("请根据以下会议内容生成思维导图结构。")
+    lines.append("")
+    lines.append(f"会议主题：{meeting.topic}")
+    lines.append("")
+    
+    # Add agenda if present
+    if meeting.agenda:
+        lines.append("会议议题：")
+        for item in meeting.agenda:
+            status = "✓" if item.completed else "○"
+            lines.append(f"{status} {item.title}: {item.description}")
+        lines.append("")
+    
+    # Add meeting minutes if available (for context optimization)
+    if meeting.current_minutes:
+        lines.append("会议纪要：")
+        lines.append(meeting.current_minutes.content)
+        lines.append("")
+        
+        # Add messages after minutes
+        minutes_time = meeting.current_minutes.created_at
+        new_messages = [m for m in meeting.messages if m.timestamp > minutes_time]
+        if new_messages:
+            lines.append("纪要后的新讨论：")
+            for msg in new_messages:
+                lines.append(f"[{msg.speaker_name}]: {msg.content}")
+            lines.append("")
+    else:
+        # Add all messages
+        lines.append("会议讨论内容：")
+        for msg in meeting.messages:
+            lines.append(f"[{msg.speaker_name}] (消息ID: {msg.id}): {msg.content}")
+        lines.append("")
+    
+    lines.append("请生成思维导图的JSON结构，要求：")
+    lines.append("1. 根节点（level 0）是会议主题")
+    lines.append("2. 一级分支节点（level 1）是会议议题或主要讨论主题")
+    lines.append("3. 二级及以下分支节点（level 2+）是关键讨论点、观点、决策等")
+    lines.append("4. 每个节点包含相关的消息ID引用（message_references）")
+    lines.append("5. 节点之间通过parent_id和children_ids建立层级关系")
+    lines.append("")
+    lines.append("输出格式（JSON）：")
+    lines.append("{")
+    lines.append('  "nodes": [')
+    lines.append('    {')
+    lines.append('      "id": "node_0",')
+    lines.append('      "content": "会议主题",')
+    lines.append('      "level": 0,')
+    lines.append('      "parent_id": null,')
+    lines.append('      "children_ids": ["node_1", "node_2"],')
+    lines.append('      "message_references": []')
+    lines.append('    },')
+    lines.append('    {')
+    lines.append('      "id": "node_1",')
+    lines.append('      "content": "议题1或主题1",')
+    lines.append('      "level": 1,')
+    lines.append('      "parent_id": "node_0",')
+    lines.append('      "children_ids": ["node_1_1", "node_1_2"],')
+    lines.append('      "message_references": ["msg_id_1", "msg_id_2"]')
+    lines.append('    },')
+    lines.append('    ...')
+    lines.append('  ]')
+    lines.append('}')
+    lines.append("")
+    lines.append("请只输出JSON，不要包含其他说明文字。")
+    
+    return "\n".join(lines)
